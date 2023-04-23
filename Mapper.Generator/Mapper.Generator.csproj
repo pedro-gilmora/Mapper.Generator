@@ -5,7 +5,12 @@
 		<LangVersion>latest</LangVersion>
 		<Configurations>Debug;Release;Test</Configurations>
 		<PackageVersion>
-			1.
+			$([System.Convert]::ToUInt16(
+				$([MSBuild]::Add(
+					$([System.DateTime]::Now.Year),
+					-2023
+				))
+			)).
 			$([System.DateTime]::Now.ToString('yy')).
 			$([System.DateTime]::Now.DayOfYear).
 			$([System.Convert]::ToUInt16(
@@ -16,9 +21,9 @@
 			))
 		</PackageVersion>
 		<Company>AsereHighDev</Company>
-		<Description>Generator for MAUI View Models</Description>
+		<Description>Generator for class mappings</Description>
 		<PackageReadmeFile>ReadMe.md</PackageReadmeFile>
-		<PackageTags>REST; Source Generator; C#; </PackageTags>
+		<PackageTags>Mapper; Source Generator; C#; </PackageTags>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
 
@@ -48,7 +53,6 @@
 		<PackageReference Include="IndexRange" Version="1.0.2" PrivateAssets="all" GeneratePathProperty="true" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="7.0.0" GeneratePathProperty="true" />
 		<PackageReference Include="System.Memory" Version="4.5.5" PrivateAssets="all" GeneratePathProperty="true" />
-		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.0.0" />
 	</ItemGroup>
 
 	<ItemGroup Condition=" '$(Configuration)' == 'Release' ">

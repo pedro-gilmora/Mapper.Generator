@@ -8,7 +8,6 @@
 	</PropertyGroup>
 	
 	<ItemGroup>
-		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.0.0" />
 		<PackageReference Include="FluentAssertions" Version="6.8.0" PrivateAssets="all" />
 		<PackageReference Include="Microsoft.CodeAnalysis.Common" Version="4.4.0" />
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.4.0" />
@@ -23,8 +22,8 @@
 		</PackageReference>
 	</ItemGroup>
 	
-  <ItemGroup>
-    <ProjectReference Include="..\Mvvm.Extensions.Generator\Mvvm.Extensions.Generator.csproj" OutputItemType="Analyzer" />
-  </ItemGroup>
+	<ItemGroup>
+		<ProjectReference Include="..\Mapper.Generator\Mapper.Generator.csproj" OutputItemType="Analyzer" />
+	</ItemGroup>
 
 </Project>

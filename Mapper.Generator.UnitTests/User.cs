@@ -1,7 +1,9 @@
-﻿# ✨ **Mapper.Generator**: Generates simple partial classes with explicit conversion operators based on predefined metadata 
+﻿using FluentAssertions;
+using Mapper.Generator.Attributes;
+using Xunit;
 
-### Given the following classes
-```csharp
+namespace Mapper.Generator.UnitTests;
+
 public partial class Role
 {
 
@@ -50,38 +52,26 @@ public partial class UserDto
     public decimal TotalAmount { get; set; }
     static string MapFullName(User user) => $"{user.LastName?.Trim()}, {user.FirstName?.Trim()}";
 }
-```
 
-should generates the following view model class (based on the previous definition example):
+public class TestImplicitMapper {
 
-```csharp
-public partial class User
-{
-    public static explicit operator User(UserDto from)
-    {
-        return new User {
-	        Age = from.Age,
-	        DateOfBirth = from.DateOfBirth,
-	        Balance = (double)from.TotalAmount,
-	        Roles = from.Roles.Select(el => (Role)el).ToList(),
-	        MainRole = (Role)from.MainRole
-        }
-            .MapName(from);
+    [Fact]
+    void TestClass() {
+        DateTime today = DateTime.Today;
+        (int, string)[] roles = { (0, "admin"), (1, "publisher") };
+       
+        User fromDto = (User)new UserDto { FullName = "Gil Mora, Pedro", Age = 32, DateOfBirth = today, Roles = roles, MainRole = roles[0] };
+        fromDto.Age.Should().Be(32);
+        fromDto.FirstName.Should().Be("Pedro");
+        fromDto.LastName.Should().Be("Gil Mora");
+        fromDto.DateOfBirth.Should().Be(today);
+        fromDto.Roles.Select(r => ((int, string))r).Should().BeEquivalentTo(roles);
+
+        UserDto fromModel = (UserDto)fromDto;
+        fromModel.Age.Should().Be(32);
+        fromModel.FullName.Should().Be("Gil Mora, Pedro");
+        fromModel.DateOfBirth.Should().Be(today);
+        fromModel.Roles.Should().BeEquivalentTo(roles);
     }
-}
 
-public partial class UserDto
-{
-    public static explicit operator UserDto(User from)
-    {
-        return new UserDto {
-	        FullName = MapFullName(from),
-	        Age = from.Age,
-	        DateOfBirth = from.DateOfBirth,
-	        Roles = from.Roles.Select(el => ((int, string))el).ToArray(),
-	        MainRole = ((int, string))from.MainRole,
-	        TotalAmount = (decimal)from.Balance
-        };
-    }
 }
-```
