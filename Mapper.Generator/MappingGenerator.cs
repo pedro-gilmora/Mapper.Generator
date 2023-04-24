@@ -5,9 +5,8 @@ using System;
 using System.Linq;
 using System.Collections.Generic;
 using Microsoft.CodeAnalysis.CSharp;
-using System.Reflection;
 using System.Collections.Immutable;
-using System.Xml.Linq;
+using System.Text;
 
 namespace Mvvm.Extensions.Generator;
 
@@ -50,48 +49,105 @@ public class MappingGenerator : IIncrementalGenerator
         {
             //GenerateMembers(model, usings, GetAllMembers(target), out string fields, out string properties, out string propertyChangeFields, out string commandMethods);
 
-            string classCode = $@"namespace {nmspc};
+            var code = new StringBuilder($@"namespace {nmspc};
 
 public partial class {name}
 {{
-    {GetImplicitOperators(attrs, cls, model, usings)}
-}}";
-            return ($"{nmspc}{name}.mapper.g.cs", $@"//<auto generated>
+    ");
+            GetImplicitOperators(code, attrs, cls, model, usings);
+
+            code.Append(@"
+}");
+            return ($"{nmspc}.{name}.mapper.g.cs", $@"//<auto generated>
 #nullable enable{usings.Join(u => $@"
 using {u};")}
 
-{classCode}");
+{code}");
 
         }
         catch (Exception e)
         {
-            return ($"{nmspc}{name}.mapper.g.cs", $"/*{e}*/");
+            return ($"{nmspc}.{name}.mapper.g.cs", $"/*{e}*/");
         }
 
     }
 
-    static string GetImplicitOperators(ImmutableArray<AttributeData> attrs, ITypeSymbol targetClass, SemanticModel model, HashSet<string> usings)
+    static void GetImplicitOperators(StringBuilder code, ImmutableArray<AttributeData> attrs, ITypeSymbol targetClass, SemanticModel model, HashSet<string> usings)
     {
         List<string> builders = new();
-        return attrs.SelectMany(attr =>
-            attr.AttributeClass!.TypeArguments
-                .Select(sourceClass =>
-                {
-                    string sourceClassName = GetType(usings, sourceClass);
-                    return $@"public static explicit operator {GetType(usings, targetClass)}({sourceClassName} from)
+        foreach (var attr in attrs)
+        {
+            var cls = attr.AttributeClass!.TypeArguments.First();
+            string sourceClassName = GetType(usings, cls);
+            code
+                .AppendFormat(@"public static explicit operator {0}({1} from)
     {{
-        return new {targetClass.Name} {{{GetInitializers(targetClass, sourceClass, model, builders, usings).Join(@",")}
-        }}{builders.Join("")};
-    }}";
-                })).Join(@"
-    
-    ");
+        return ",
+                    GetType(usings, targetClass),
+                    sourceClassName);
+
+            if (UsesStaticMapper(attr, targetClass, cls, model, out var ee))
+
+                code.Append($"{ee}(from);");
+
+            else
+            {
+                code.Append($"new {targetClass.Name} {{");
+
+                GetInitializers(code, targetClass, cls, model, builders, usings);
+
+                code.Append(@"
+        }");
+
+                builders.Aggregate(code, (_, i) => code.Append(i)).Append(";");
+            }
+
+            code.Append(@"
+    }");
+        }
     }
 
-    static IEnumerable<string> GetInitializers(ITypeSymbol target, ITypeSymbol source, SemanticModel model, List<string> code, HashSet<string> usings)
+    private static bool UsesStaticMapper(AttributeData attr, ITypeSymbol targetClass, ITypeSymbol cls, SemanticModel model,
+        out string staticMapper)
     {
-        var sourceProperties = source.GetMembers().OfType<IPropertySymbol>().ToArray();
-        foreach (var member in target.GetMembers())
+        staticMapper = null!;
+
+        if (((AttributeSyntax)attr.ApplicationSyntaxReference?.GetSyntax()!).ArgumentList?.Arguments is not { } args)
+            return false;
+
+        foreach (var a in args)
+        {
+            if (a.Expression is not InvocationExpressionSyntax
+                {   //Is nameof expression 
+                    Expression: IdentifierNameSyntax { Identifier.Text: "nameof" },
+                    ArgumentList.Arguments: [{
+                        // forces to match a member access sytntax
+                        Expression: MemberAccessExpressionSyntax { Name: { } id } expr
+                    }]
+                }) continue;
+
+            if (model.GetSymbolInfo(id) is not { CandidateReason: CandidateReason.MemberGroup, CandidateSymbols: { } cands })
+                continue;
+
+            foreach (var c in cands)
+            {
+                if (c is not IMethodSymbol { ReturnType: { } retType, Parameters: [{ Type: { } firstArgType }]} ||
+                    !AreSymbolsEquals(retType, targetClass) || 
+                    !AreSymbolsEquals(firstArgType, cls)) continue;
+
+                staticMapper = expr.ToString();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void GetInitializers(StringBuilder code, ITypeSymbol target, ITypeSymbol source, SemanticModel model, List<string> builders, HashSet<string> usings)
+    {
+        var inserted = false;
+        var sourceProperties = GetAllSpearedDeclaratedMembers(source, model).OfType<IPropertySymbol>().ToArray();
+
+        foreach (var member in GetAllSpearedDeclaratedMembers(target, model))
         {
             if (member is IPropertySymbol { Type: { } targetPropType } targetProp)
             {
@@ -107,20 +163,30 @@ using {u};")}
                         TryGetMethodReferenceFromNameOf(GetFirstParameter(atli), model, source, target, targetProp.Type, out var methodReference)
                     )
                     {
+                        if (inserted)
+                            code.Append(",");
+                        else
+                            inserted = true;
+
                         //Mapper assignament
-                        yield return @$"
-	        {targetProp.Name} = {methodReference.Name}(from)";
+                        code.Append(@$"
+	        {targetProp.Name} = {methodReference.Name}(from)");
                         //Go to next property
                         goto exit;
                     }
                     else if (
                         AttributeHasName(atli, "MapFrom", "Mapper.Generator.Attributes") &&
                         GetFirstParameter(atli) is { } _nameOf &&
-                        GetNameOfArgument(_nameOf, out var memberRef) && 
+                        GetNameOfArgument(_nameOf, out var memberRef) &&
                         memberRef is MemberAccessExpressionSyntax { Name: { Identifier.Text: { } sourcePropName } prop } memberAccess &&
                         AreSymbolsEquals(model.GetSymbolInfo(memberAccess.Expression).Symbol, source)
                     )
                     {
+                        if (inserted)
+                            code.Append(",");
+                        else
+                            inserted = true;
+
                         //Mapper assignament
                         string assignment = @$"
 	        {targetProp.Name} = ";
@@ -130,8 +196,8 @@ using {u};")}
                             assignment += $"({GetType(usings, targetPropType)})";
 
                         assignment += $"from.{sourcePropName}";
-                        
-                        yield return assignment;
+
+                        code.Append(assignment);
                         //Go to next property
                         goto exit;
                     }
@@ -139,16 +205,21 @@ using {u};")}
 
                 if (sourceProperties.FirstOrDefault(s => s.Name == targetProp.Name) is { } sourceProp)
                 {
+                    if (inserted)
+                        code.Append(",");
+                    else
+                        inserted = true;
+
                     var assignment = $"from.{sourceProp.Name}";
 
-                    if (!AreSymbolsEquals(targetProp.Type, sourceProp.Type) && 
-                        (!IsEnumerable(targetProp.Type) || !IsEnumerable(sourceProp.Type) || 
-                        !ProcessEnumerableConversion(usings, targetProp, sourceProp, ref assignment))) 
-                        
+                    if (!AreSymbolsEquals(targetProp.Type, sourceProp.Type) &&
+                        (!IsEnumerable(targetProp.Type) || !IsEnumerable(sourceProp.Type) ||
+                        !ProcessEnumerableConversion(usings, targetProp, sourceProp, ref assignment)))
+
                         assignment = $"({GetType(usings, targetPropType)}){assignment}";
 
-                    yield return $@"
-	        {targetProp.Name} = {assignment}";
+                    code.Append($@"
+	        {targetProp.Name} = {assignment}");
 
                 }
 
@@ -159,7 +230,7 @@ using {u};")}
                 AreSymbolsEquals(target, method.ReturnType)
             )
             {
-                code.Add(@$"
+                builders.Add(@$"
             .{method.Name}(from)");
             }
 
@@ -167,13 +238,29 @@ using {u};")}
         }
     }
 
+    static HashSet<ISymbol> GetAllSpearedDeclaratedMembers(ITypeSymbol target, SemanticModel model)
+    {
+        return new(
+            target
+                .DeclaringSyntaxReferences
+                .SelectMany(r =>
+                {
+                    var source = r.GetSyntax();
+                    ITypeSymbol test = ((ITypeSymbol)model.GetDeclaredSymbol(source)!);
+                    return test?
+                        .GetMembers()
+                    ?? Enumerable.Empty<ISymbol>();
+                }),
+            SymbolEqualityComparer.Default);
+    }
+
     static bool ProcessEnumerableConversion(HashSet<string> usings, IPropertySymbol targetProp, IPropertySymbol sourceProp, ref string assignment)
-    {        
+    {
         var nullCheck = targetProp.NullableAnnotation == NullableAnnotation.Annotated ? "?" : "";
 
         ITypeSymbol
-            targetCollectionType = targetProp.Type is IArrayTypeSymbol arrSymb
-                ? arrSymb.ElementType
+            targetCollectionType = targetProp.Type is IArrayTypeSymbol { ElementType: { } eltype } arrSymb
+                ? eltype
                 : ((INamedTypeSymbol)targetProp.Type).TypeArguments[0],
             sourceCollectionType = sourceProp.Type is IArrayTypeSymbol arrSymb2
                 ? arrSymb2.ElementType
@@ -200,7 +287,7 @@ using {u};")}
         {
             assignment += $"{nullCheck}.ToHashSet()";
         }
-        else 
+        else
             return false;
 
         return true;
@@ -242,9 +329,9 @@ using {u};")}
 
     private static bool AttributeHasName(AttributeData attr, string name, string _namespace = "")
     {
-        return attr.AttributeClass is { Name:{ } attrName, ContainingNamespace: { } nmspc } &&
-            (attrName == $"{name}Attribute" || attrName == name) && 
-            ((_namespace?.Length ?? 0) == 0 || nmspc.ToDisplayString() == _namespace) ;
+        return attr.AttributeClass is { Name: { } attrName, ContainingNamespace: { } nmspc } &&
+            (attrName == $"{name}Attribute" || attrName == name) &&
+            ((_namespace?.Length ?? 0) == 0 || nmspc.ToDisplayString() == _namespace);
     }
 
     private static string GetType(HashSet<string> usings, ITypeSymbol type)

@@ -6,28 +6,41 @@ namespace Mapper.Generator.UnitTests;
 
 public partial class Role
 {
-
     public int Id { get; set; }
     public string Name { get; set; } = null!;
 
     public static explicit operator Role((int id, string name) role) => new() { Id = role.id, Name = role.name };
     public static explicit operator (int id, string name)(Role role) => (role.Id, role.Name);
 }
+public static class Mapper
+{
+    public static User Map(UserDto from)
+    {
+        return new User
+        {
+            Age = from.Age,
+            DateOfBirth = from.DateOfBirth,
+            Balance = (double)from.TotalAmount,
+            Roles = from.Roles.Select(el => (Role)el).ToList(),
+            MainRole = (Role)from.MainRole
+        }
+            .MapName(from);
+    }
+}
 
-[Map<UserDto>]
+[Map<UserDto>(nameof(Mapper.Map))]
 public partial class User
 {
     public string FirstName { get; set; } = null!;
     public string? LastName { get; set; }
     public int Age { get; set; }
-
     public DateTime DateOfBirth { get; set; }
     [MapFrom(nameof(UserDto.TotalAmount))]
     public double Balance { get; set; }
     public List<Role> Roles { get; set; } = new();
     public Role MainRole { get; set; }
 
-    User MapName(UserDto user)
+    internal User MapName(UserDto user)
     {
         (FirstName, LastName) = user.FullName?.Split(",") switch
         {
