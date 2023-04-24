@@ -34,7 +34,7 @@ jobs:
       with:
         dotnet-version: 7.0.x    
     - name: Pack
-      run: dotnet pack Mapper.Generator/Mapper.Generator.csproj --verbosity normal -c Release /p:PackageReleaseNotes="${{ github.event.head_commit.message }}"
+      run: dotnet pack Mapper.Generator/Mapper.Generator.csproj --verbosity normal -c Release /p:PackageReleaseNotes="${{ toJSON(github.event.head_commit.message) }}"
     - name: Publish to Nuget
       run: |
         package="$(find . -wholename '**/Release/*.nupkg' -exec echo "{}" \;)"
