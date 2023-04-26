@@ -10,62 +10,71 @@ public partial class Role
     public static explicit operator Role((int id, string name) role) => new() { Id = role.id, Name = role.name };
     public static explicit operator (int id, string name)(Role role) => (role.Id, role.Name);
 }
+
+public partial class User
+{
+    public int Count { get; set; }
+
+}
 public static class Mapper
 {
     public static User Map(UserDto from)
     {
         return new User
         {
-            Age = from.Age,
-            DateOfBirth = from.DateOfBirth,
             Balance = (double)from.TotalAmount,
+            Count = from.Count,
             Roles = from.Roles.Select(el => (Role)el).ToList(),
-            MainRole = (Role)from.MainRole
-        }
-            .MapName(from);
+            DateOfBirth = from.DateOfBirth,
+            MainRole = (Role)from.MainRole,
+            Age = from.Age
+        };
     }
 }
-
 [Map<UserDto>(nameof(Mapper.Map))]
 public partial class User
 {
     public string FirstName { get; set; } = null!;
     public string? LastName { get; set; }
     public int Age { get; set; }
+    [Ignore(Ignore.OnSource)]
+    public string? Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
-    [MapFrom(nameof(UserDto.TotalAmount))]
+    [Map(nameof(UserDto.TotalAmount), Ignore.OnTarget)]
     public double Balance { get; set; }
     public List<Role> Roles { get; set; } = new();
     public Role MainRole { get; set; }
 
-    internal User MapName(UserDto user)
+    internal string FullName
     {
-        (FirstName, LastName) = user.FullName?.Split(",") switch
+        get => $"{ LastName?.Trim()}, { FirstName?.Trim()}";
+        set => (FirstName, LastName) = value?.Split(", ") switch
         {
             [{ } lastName, { } firstName] => (firstName.Trim(), lastName.Trim()),
-            [{ } firstName] => (firstName, null),
-            _ => (null!, null)
+            [{ } firstName] => (firstName, null!),
+            _ => (null!, null!)
         };
-        return this;
     }
 }
 
-[Map<User>]
 public partial class UserDto
 {
-    [MapWith(nameof(MapFullName))]
-    public string FullName { get; set; } = null!;
-    public int Age { get; set; }    
+    public string FullName
+    {
+        get;
+        set;
+    } = null!;
+    public int Count { get; set; }
+    public int Age { get; set; }
+    public string Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
     public (int, string)[] Roles { get; set; } = Array.Empty<(int, string)>();
     public (int, string) MainRole { get; set; } = default;
-    [MapFrom(nameof(User.Balance))]
     public decimal TotalAmount { get; set; }
-    static string MapFullName(User user) => $"{user.LastName?.Trim()}, {user.FirstName?.Trim()}";
 }
 ```
 
-should generates the following view model class (based on the previous definition example):
+...should generates the following mapping class (based on the previous definition example):
 
 ```csharp
 public partial class User
@@ -74,19 +83,17 @@ public partial class User
     {
         return Mapper.Map(from);
     }
-}
-
-public partial class UserDto
-{
+			
     public static explicit operator UserDto(User from)
     {
         return new UserDto {
-	        FullName = MapFullName(from),
+	        Count = from.Count,
 	        Age = from.Age,
 	        DateOfBirth = from.DateOfBirth,
+	        TotalAmount = (decimal)from.Balance,
 	        Roles = from.Roles.Select(el => ((int, string))el).ToArray(),
 	        MainRole = ((int, string))from.MainRole,
-	        TotalAmount = (decimal)from.Balance
+	        FullName = from.FullName
         };
     }
 }

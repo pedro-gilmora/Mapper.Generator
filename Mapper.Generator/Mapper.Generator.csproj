@@ -25,6 +25,7 @@
 		<PackageReadmeFile>ReadMe.md</PackageReadmeFile>
 		<PackageTags>Mapper; Source Generator; C#; </PackageTags>
 		<Nullable>enable</Nullable>
+		<RootNamespace>$(MSBuildProjectName.Replace(" ", "."))</RootNamespace>
 	</PropertyGroup>
 
 	<PropertyGroup Condition=" $(Configuration) == 'Test' ">

@@ -1,4 +1,4 @@
-name: HttPie.Generator build and deploy
+name: Mapper.Generator build and deploy
 
 on:
   push:
@@ -34,7 +34,9 @@ jobs:
       with:
         dotnet-version: 7.0.x    
     - name: Pack
-      run: dotnet pack Mapper.Generator/Mapper.Generator.csproj --verbosity normal -c Release /p:PackageReleaseNotes='${{ github.event.head_commit.message }}'
+      run: |
+        without_comma=$(echo "${{ github.event.head_commit.message }}" | sed 's/,/\\u002C/g')
+        dotnet pack Mapper.Generator/Mapper.Generator.csproj --verbosity normal -c Release /p:PackageReleaseNotes="$without_comma"
     - name: Publish to Nuget
       run: |
         package="$(find . -wholename '**/Release/*.nupkg' -exec echo "{}" \;)"

@@ -7,12 +7,24 @@ using System.Collections.Generic;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Collections.Immutable;
 using System.Text;
+using static System.Net.Mime.MediaTypeNames;
+using Mapper.Generator.Constants;
+using System.Diagnostics;
 
 namespace Mvvm.Extensions.Generator;
 
 [Generator]
 public class MappingGenerator : IIncrementalGenerator
 {
+    public const string DiagnosticId = "NotAllowedIgnoreAndMap";
+
+    private static readonly LocalizableString Title = "Two attributes on the same property";
+    private static readonly LocalizableString MessageFormat = "Property '{0}' has both, Ignore and Map attributes";
+    private static readonly LocalizableString Description = "Ignore and Map attributes attributes should not be present on the same property.";
+    private const string Category = "Naming";
+
+    private static readonly DiagnosticDescriptor Rule = new DiagnosticDescriptor(DiagnosticId, Title, MessageFormat, Category, DiagnosticSeverity.Error, isEnabledByDefault: true, description: Description);
+
     static readonly object _lock = new();
     static readonly Func<ISymbol?, ISymbol?, bool> AreSymbolsEquals = SymbolEqualityComparer.Default.Equals;
     public void Initialize(IncrementalGeneratorInitializationContext context)
@@ -49,15 +61,33 @@ public class MappingGenerator : IIncrementalGenerator
         {
             //GenerateMembers(model, usings, GetAllMembers(target), out string fields, out string properties, out string propertyChangeFields, out string commandMethods);
 
+#if DEBUG
+            string extraText = "";
+#endif
             var code = new StringBuilder($@"namespace {nmspc};
 
 public partial class {name}
 {{
     ");
-            GetImplicitOperators(code, attrs, cls, model, usings);
+            GetImplicitOperators(code, attrs, cls, model, usings
+#if DEBUG
+                , ref extraText
+#endif
+            );
 
+#if DEBUG
+            code.Append($@"
+}}
+/*
+Extras:
+-------{extraText}
+*/
+");
+
+#else
             code.Append(@"
 }");
+#endif
             return ($"{nmspc}.{name}.mapper.g.cs", $@"//<auto generated>
 #nullable enable{usings.Join(u => $@"
 using {u};")}
@@ -72,29 +102,84 @@ using {u};")}
 
     }
 
-    static void GetImplicitOperators(StringBuilder code, ImmutableArray<AttributeData> attrs, ITypeSymbol targetClass, SemanticModel model, HashSet<string> usings)
+    static void GetImplicitOperators(StringBuilder code, ImmutableArray<AttributeData> attrs, ITypeSymbol leftClass, SemanticModel model, HashSet<string> usings
+#if DEBUG
+        , ref string extraText
+#endif
+        )
     {
         List<string> builders = new();
-        foreach (var attr in attrs)
+        foreach (var attr in attrs.AsSpan())
         {
-            var cls = attr.AttributeClass!.TypeArguments.First();
-            string sourceClassName = GetType(usings, cls);
+            var rightClass = attr.AttributeClass!.TypeArguments.First();
+            string rightClassName = GetType(usings, rightClass);
+            string leftClassName = GetType(usings, leftClass);
+
+            Dictionary<ISymbol, ISymbol> reverseMappers = new(SymbolEqualityComparer.Default);
+
             code
                 .AppendFormat(@"public static explicit operator {0}({1} from)
     {{
         return ",
-                    GetType(usings, targetClass),
-                    sourceClassName);
+                    leftClassName,
+                    rightClassName);
 
-            if (UsesStaticMapper(attr, targetClass, cls, model, out var ee))
+            if (UsesStaticMapper(attr, leftClass, rightClass, model, out var staticMapper))
+            {
+                GetInitializers(leftClass, rightClass, model, usings, reverseMappers
+#if DEBUG
+        , ref extraText
+#endif
+                );
 
-                code.Append($"{ee}(from);");
+                code.Append($"{staticMapper}(from);");
+
+            }
+            else
+            {
+                code.Append($"new {leftClass.Name} {{");
+
+                GetInitializers(leftClass, rightClass, model, usings, reverseMappers
+#if DEBUG
+                    , ref extraText
+#endif
+                    , code.Append);
+
+                code.Append(@"
+        }");
+
+                builders.Aggregate(code, (_, i) => code.Append(i)).Append(";");
+            }
+
+            code.Append(@"
+    }");
+
+            builders.Clear();
+
+            code
+                .AppendFormat(@"
+			
+    public static explicit operator {0}({1} from)
+    {{
+        return ",
+                    rightClassName,
+                    leftClassName);
+
+            if (UsesStaticMapper(attr, rightClass, leftClass, model, out staticMapper))
+
+                code.Append($"{staticMapper}(from);");
 
             else
             {
-                code.Append($"new {targetClass.Name} {{");
+                code.Append($"new {rightClassName} {{");
+                bool inserted = false;
 
-                GetInitializers(code, targetClass, cls, model, builders, usings);
+                foreach (var map in reverseMappers)
+                {
+                    GeneratePropertyMap(usings, map.Key, map.Value, code.Append, ref inserted);
+                }
+
+                //GetInitializers(code, sourceClass, targetClass, model, builders, usings, true);
 
                 code.Append(@"
         }");
@@ -107,164 +192,222 @@ using {u};")}
         }
     }
 
-    private static bool UsesStaticMapper(AttributeData attr, ITypeSymbol targetClass, ITypeSymbol cls, SemanticModel model,
-        out string staticMapper)
+    static void GetInitializers(ITypeSymbol leftClass, ITypeSymbol rightClass, SemanticModel model,
+        HashSet<string> usings, Dictionary<ISymbol, ISymbol> reverseMappers
+#if DEBUG
+        , ref string extraText
+#endif
+        , Func<string, StringBuilder>? append = null
+    )
+    {
+        var inserted = false;
+
+        var rightMembers = GetMappableMembers(rightClass);
+
+        foreach (var leftMember in GetMappableMembers(leftClass))
+        {
+            if ((TryMapFromAttribute(leftMember, rightClass, model, out Ignore ignore, out var rightMember
+#if DEBUG
+                , ref extraText
+#endif
+                ) ||
+                TryMapFromRight(rightMembers, leftMember, out rightMember)) &&
+                ignore != Ignore.Both
+                )
+            {
+                if (ignore != Ignore.OnTarget && append != null)
+                    GeneratePropertyMap(usings, leftMember, rightMember, append, ref inserted);
+
+                if (ignore != Ignore.OnSource)
+                    reverseMappers.Add(rightMember, leftMember);
+            }
+        }
+    }
+
+    static ReadOnlySpan<ISymbol> GetMappableMembers(ITypeSymbol target) =>
+        target.GetMembers()
+            .Where(member => member is IPropertySymbol or IFieldSymbol { AssociatedSymbol: null })
+            .Distinct(SymbolEqualityComparer.Default)
+            .ToImmutableArray()
+            .AsSpan();
+
+    static bool UsesStaticMapper(
+        AttributeData attr, ITypeSymbol leftClass, ITypeSymbol rightClass, SemanticModel model, out string staticMapper)
     {
         staticMapper = null!;
 
-        if (((AttributeSyntax)attr.ApplicationSyntaxReference?.GetSyntax()!).ArgumentList?.Arguments is not { } args)
-            return false;
+        if (attr.ApplicationSyntaxReference?.GetSyntax() is not AttributeSyntax
+            {
+                ArgumentList.Arguments: [{ Expression: { } arg }]
+            }) return false;
 
-        foreach (var a in args)
-        {
-            if (a.Expression is not InvocationExpressionSyntax
-                {   //Is nameof expression 
-                    Expression: IdentifierNameSyntax { Identifier.Text: "nameof" },
-                    ArgumentList.Arguments: [{
+        if (arg is not InvocationExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax
+                {
+                    //Is nameof expression
+                    Identifier.Text: "nameof"
+                },
+                ArgumentList.Arguments: [
+                    {
                         // forces to match a member access sytntax
                         Expression: MemberAccessExpressionSyntax { Name: { } id } expr
                     }]
-                }) continue;
+            }) return false;
 
-            if (model.GetSymbolInfo(id) is not { CandidateReason: CandidateReason.MemberGroup, CandidateSymbols: { } cands })
-                continue;
-
-            foreach (var c in cands)
+        if (model.GetSymbolInfo(id) is not
             {
-                if (c is not IMethodSymbol { ReturnType: { } retType, Parameters: [{ Type: { } firstArgType }]} ||
-                    !AreSymbolsEquals(retType, targetClass) || 
-                    !AreSymbolsEquals(firstArgType, cls)) continue;
+                CandidateReason: CandidateReason.MemberGroup,
+                CandidateSymbols: { } cands
+            }) return false;
 
-                staticMapper = expr.ToString();
-                return true;
-            }
+        foreach (var c in cands)
+        {
+            if ((c is not IMethodSymbol
+                {
+                    ReturnType: { } retType,
+                    Parameters: [{ Type: { } firstArgType }]
+                } ||
+                !AreSymbolsEquals(leftClass, retType) ||
+                !AreSymbolsEquals(rightClass, firstArgType))
+            ) continue;
+
+            staticMapper = expr.ToString();
+            return true;
         }
         return false;
     }
 
-    static void GetInitializers(StringBuilder code, ITypeSymbol target, ITypeSymbol source, SemanticModel model, List<string> builders, HashSet<string> usings)
+    static bool TryMapFromAttribute(
+        ISymbol prop, ITypeSymbol rightClass, SemanticModel model,
+        out Ignore ignore,
+        out ISymbol element
+#if DEBUG
+        , ref string extraText
+#endif
+    )
     {
-        var inserted = false;
-        var sourceProperties = GetAllSpearedDeclaratedMembers(source, model).OfType<IPropertySymbol>().ToArray();
+        element = null!;
+        ignore = 0;
 
-        foreach (var member in GetAllSpearedDeclaratedMembers(target, model))
+        foreach (var (attrName, firstArg, ignore2) in prop.GetAttributes().Select(GetAttrInfo).ToImmutableArray().AsSpan())
         {
-            if (member is IPropertySymbol { Type: { } targetPropType } targetProp)
+            if (attrName != "Map")
             {
-                foreach (var atli in targetProp.GetAttributes())
-                {
-                    if (IgnoreProperty(atli))
-                    {
-                        //Skip property
-                        goto exit;
-                    }
-                    else if (
-                        AttributeHasName(atli, "MapWith", "Mapper.Generator.Attributes") &&
-                        TryGetMethodReferenceFromNameOf(GetFirstParameter(atli), model, source, target, targetProp.Type, out var methodReference)
-                    )
-                    {
-                        if (inserted)
-                            code.Append(",");
-                        else
-                            inserted = true;
-
-                        //Mapper assignament
-                        code.Append(@$"
-	        {targetProp.Name} = {methodReference.Name}(from)");
-                        //Go to next property
-                        goto exit;
-                    }
-                    else if (
-                        AttributeHasName(atli, "MapFrom", "Mapper.Generator.Attributes") &&
-                        GetFirstParameter(atli) is { } _nameOf &&
-                        GetNameOfArgument(_nameOf, out var memberRef) &&
-                        memberRef is MemberAccessExpressionSyntax { Name: { Identifier.Text: { } sourcePropName } prop } memberAccess &&
-                        AreSymbolsEquals(model.GetSymbolInfo(memberAccess.Expression).Symbol, source)
-                    )
-                    {
-                        if (inserted)
-                            code.Append(",");
-                        else
-                            inserted = true;
-
-                        //Mapper assignament
-                        string assignment = @$"
-	        {targetProp.Name} = ";
-
-                        if (model.GetSymbolInfo(prop).Symbol is IPropertySymbol { Type: { } propType } &&
-                                !AreSymbolsEquals(propType, targetPropType))
-                            assignment += $"({GetType(usings, targetPropType)})";
-
-                        assignment += $"from.{sourcePropName}";
-
-                        code.Append(assignment);
-                        //Go to next property
-                        goto exit;
-                    }
-                }
-
-                if (sourceProperties.FirstOrDefault(s => s.Name == targetProp.Name) is { } sourceProp)
-                {
-                    if (inserted)
-                        code.Append(",");
-                    else
-                        inserted = true;
-
-                    var assignment = $"from.{sourceProp.Name}";
-
-                    if (!AreSymbolsEquals(targetProp.Type, sourceProp.Type) &&
-                        (!IsEnumerable(targetProp.Type) || !IsEnumerable(sourceProp.Type) ||
-                        !ProcessEnumerableConversion(usings, targetProp, sourceProp, ref assignment)))
-
-                        assignment = $"({GetType(usings, targetPropType)}){assignment}";
-
-                    code.Append($@"
-	        {targetProp.Name} = {assignment}");
-
-                }
-
+                if (ignore2 > ignore)
+                    ignore = ignore2;
+#if DEBUG
+                extraText += $@"
+Attr: {attrName}: ignoreValue: {ignore}";
+#endif
+                continue;
             }
-            else if (member is IMethodSymbol { Parameters: [{ Type: { } firstParamType }] } method &&
-                AreSymbolsEquals(source, firstParamType) &&
-                !method.ReturnsVoid &&
-                AreSymbolsEquals(target, method.ReturnType)
+
+            //NotifyUsage Mapping
+
+            else if (firstArg is not InvocationExpressionSyntax
+            {
+                Expression: IdentifierNameSyntax
+                {
+                    //Is nameof expression
+                    Identifier.Text: "nameof"
+                },
+                ArgumentList.Arguments: [
+                {
+                    // forces to match a member access sytntax
+                    Expression: MemberAccessExpressionSyntax
+                    {
+                        Expression: IdentifierNameSyntax cls,
+                        Name: { } id
+                    } expr
+                }]
+            }
             )
-            {
-                builders.Add(@$"
-            .{method.Name}(from)");
-            }
+                continue;
 
-        exit:;
+            else if (
+                model.GetSymbolInfo(cls).Symbol is not ITypeSymbol memberType ||
+                !AreSymbolsEquals(memberType, rightClass) ||
+                (element = model.GetSymbolInfo(id).Symbol!) is not (IPropertySymbol or IFieldSymbol { AssociatedSymbol: null })
+            )
+                continue;
+
+
+            if (ignore2 > ignore)
+                ignore = ignore2;
+#if DEBUG
+            extraText += $@"
+Attr: {attrName}: ignoreValue: {ignore}";
+#endif
+            return true;
         }
+        return false;
     }
 
-    static HashSet<ISymbol> GetAllSpearedDeclaratedMembers(ITypeSymbol target, SemanticModel model)
+
+
+    static (string, ExpressionSyntax?, Ignore) GetAttrInfo(AttributeData attr)
     {
-        return new(
-            target
-                .DeclaringSyntaxReferences
-                .SelectMany(r =>
-                {
-                    var source = r.GetSyntax();
-                    ITypeSymbol test = ((ITypeSymbol)model.GetDeclaredSymbol(source)!);
-                    return test?
-                        .GetMembers()
-                    ?? Enumerable.Empty<ISymbol>();
-                }),
-            SymbolEqualityComparer.Default);
+        var args = ((AttributeSyntax)attr.ApplicationSyntaxReference!.GetSyntax()).ArgumentList?.Arguments;
+        var name = attr.AttributeClass!.Name!.Replace("Attribute", "");
+
+        return (name, args, attr.ConstructorArguments) switch
+        {
+            ("Map", [{ Expression: { } expr },..], var ctorArgs) => (
+                name, expr, ctorArgs is [_, { Value: int mapValue }] && (Ignore)mapValue is { } val and not Ignore.Both ? val : Ignore.None),
+
+            ("Ignore", var arg, var ctorArgs) => (
+                name,
+                arg is [{ Expression: { } expr }]
+                    ? expr
+                    : null,
+                ctorArgs is [{ Value: int mapValue }]
+                    ? (Ignore)mapValue
+                    : Ignore.Both),
+
+            _ => (name, null, Ignore.None)
+        };
+    }
+    static void GeneratePropertyMap(
+        HashSet<string> usings, ISymbol leftMember, ISymbol rightMember, Func<string, StringBuilder> append, ref bool inserted)
+    {
+        if (leftMember is IPropertySymbol { IsReadOnly: true } || rightMember is IPropertySymbol { IsWriteOnly: true })
+            return;
+
+        if (inserted)
+            append(",");
+        else
+            inserted = true;
+
+        var assignment = $"from.{rightMember.Name}";
+        var mapMemberType = rightMember is IFieldSymbol fldMap
+            ? fldMap.Type
+            : ((IPropertySymbol)rightMember).Type;
+        var memberType = leftMember is IFieldSymbol fld
+            ? fld.Type
+            : ((IPropertySymbol)leftMember).Type;
+
+        if (!AreSymbolsEquals(memberType, mapMemberType) &&
+            (!IsEnumerable(memberType) || !IsEnumerable(mapMemberType) ||
+            !ProcessEnumerableConversion(usings, memberType, mapMemberType, memberType.NullableAnnotation == NullableAnnotation.Annotated, ref assignment)))
+
+            assignment = $"({GetType(usings, memberType)}){assignment}";
+
+        append($@"
+	        {leftMember.Name} = {assignment}");
     }
 
-    static bool ProcessEnumerableConversion(HashSet<string> usings, IPropertySymbol targetProp, IPropertySymbol sourceProp, ref string assignment)
+    static bool ProcessEnumerableConversion(HashSet<string> usings, ITypeSymbol targetType, ITypeSymbol mapType, bool isNullable, ref string assignment)
     {
-        var nullCheck = targetProp.NullableAnnotation == NullableAnnotation.Annotated ? "?" : "";
+        var nullCheck = isNullable ? "?" : "";
 
         ITypeSymbol
-            targetCollectionType = targetProp.Type is IArrayTypeSymbol { ElementType: { } eltype } arrSymb
+            targetCollectionType = targetType is IArrayTypeSymbol { ElementType: { } eltype } arrSymb
                 ? eltype
-                : ((INamedTypeSymbol)targetProp.Type).TypeArguments[0],
-            sourceCollectionType = sourceProp.Type is IArrayTypeSymbol arrSymb2
+                : ((INamedTypeSymbol)targetType).TypeArguments[0],
+            sourceCollectionType = mapType is IArrayTypeSymbol arrSymb2
                 ? arrSymb2.ElementType
-                : ((INamedTypeSymbol)sourceProp.Type).TypeArguments[0];
+                : ((INamedTypeSymbol)mapType).TypeArguments[0];
 
         var targetCollectionTypeName = GetType(usings, targetCollectionType);
 
@@ -272,18 +415,18 @@ using {u};")}
         {
             assignment += $"{nullCheck}.Select(el => ({targetCollectionTypeName})el)";
         }
-        if (targetProp.Type is IArrayTypeSymbol)
+        if (targetType is IArrayTypeSymbol)
         {
             assignment += $"{nullCheck}.ToArray()";
         }
-        else if (targetProp.Type.Name.EndsWith("List"))
+        else if (targetType.Name.EndsWith("List"))
         {
             assignment += $"{nullCheck}.ToList()";
 
-            if (targetProp.Type.Name.StartsWith("IReadOnlyList"))
+            if (targetType.Name.StartsWith("IReadOnlyList"))
                 assignment = $"({targetCollectionTypeName}){assignment}";
         }
-        else if (targetProp.Type.Name.EndsWith("HashSet"))
+        else if (targetType.Name.EndsWith("HashSet"))
         {
             assignment += $"{nullCheck}.ToHashSet()";
         }
@@ -293,50 +436,33 @@ using {u};")}
         return true;
     }
 
-    static bool IsEnumerable(ITypeSymbol type) => type.AllInterfaces.Any(ai => ai.SpecialType == SpecialType.System_Collections_IEnumerable);
-
-    static ExpressionSyntax? GetFirstParameter(AttributeData atli)
+    static bool IsEnumerable(ITypeSymbol type)
     {
-        return ((AttributeSyntax)atli.ApplicationSyntaxReference!.GetSyntax()).ArgumentList?.Arguments[0]?.Expression;
-    }
-
-    static bool TryGetMethodReferenceFromNameOf(ExpressionSyntax? arg0, SemanticModel model, ITypeSymbol source, ITypeSymbol target, ITypeSymbol propType, out IMethodSymbol methodReference)
-    {
-        methodReference = default!;
-        if (GetNameOfArgument(arg0, out var nameOfArg))
-            foreach (var m in model.GetMemberGroup(nameOfArg))
-            {
-                if (m is IMethodSymbol { Parameters: [{ Type: { } srcType }], ReturnType: { } retType } mm &&
-                    AreSymbolsEquals(source, srcType))
-                {
-                    methodReference = mm;
-                    return true;
-                }
-            }
+        if (type.SpecialType == SpecialType.System_String)
+            return false;
+        foreach (var ai in type.AllInterfaces.AsSpan())
+            if (ai.SpecialType == SpecialType.System_Collections_IEnumerable)
+                return true;
         return false;
     }
 
-    static bool GetNameOfArgument(ExpressionSyntax? arg0, out ExpressionSyntax expr)
+    static bool TryMapFromRight(ReadOnlySpan<ISymbol> rightMembers, ISymbol leftMember, out ISymbol rightMember)
     {
-        expr = null!;
-
-        return arg0 is InvocationExpressionSyntax { ArgumentList.Arguments: [{ Expression: { } paramValue }], Expression: { } name } &&
-            name.ToString() == "nameof" &&
-            (expr = paramValue) != null;
+        rightMember = null!;
+        foreach (var member in rightMembers)
+        {
+            if (member is IPropertySymbol or IFieldSymbol && member.Name == leftMember.Name)
+            {
+                rightMember = member;
+                return true;
+            }
+        }
+        return false;
     }
 
-    private static bool IgnoreProperty(AttributeData attr) => AttributeHasName(attr, "IgnoreMap");
-
-    private static bool AttributeHasName(AttributeData attr, string name, string _namespace = "")
+    static string GetType(HashSet<string> usings, ITypeSymbol type)
     {
-        return attr.AttributeClass is { Name: { } attrName, ContainingNamespace: { } nmspc } &&
-            (attrName == $"{name}Attribute" || attrName == name) &&
-            ((_namespace?.Length ?? 0) == 0 || nmspc.ToDisplayString() == _namespace);
-    }
-
-    private static string GetType(HashSet<string> usings, ITypeSymbol type)
-    {
-        RegisterNamespace(usings, type.ContainingNamespace.ToString());
+        RegisterNamespace(usings, type.ContainingNamespace.ToString()!);
 
         return type switch
         {
@@ -353,14 +479,14 @@ using {u};")}
         };
     }
 
-    private static void RegisterNamespace(HashSet<string> usings, params string[] namespaces)
+    static void RegisterNamespace(HashSet<string> usings, params string[] namespaces)
     {
         foreach (var ns in namespaces)
             if (ns != "<global namespace>")
                 usings.Add(ns);
     }
 
-    private static bool IsPrimitive(INamedTypeSymbol type)
+    static bool IsPrimitive(INamedTypeSymbol type)
     {
         return type?.SpecialType switch
         {

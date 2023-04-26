@@ -1,5 +1,6 @@
 ﻿using FluentAssertions;
 using Mapper.Generator.Attributes;
+using Mapper.Generator.Constants;
 using Xunit;
 
 namespace Mapper.Generator.UnitTests;
@@ -12,58 +13,68 @@ public partial class Role
     public static explicit operator Role((int id, string name) role) => new() { Id = role.id, Name = role.name };
     public static explicit operator (int id, string name)(Role role) => (role.Id, role.Name);
 }
+
+public partial class User
+{
+    public int Count { get; set; }
+
+}
 public static class Mapper
 {
     public static User Map(UserDto from)
     {
         return new User
         {
+            Count = from.Count,
             Age = from.Age,
+            Unwanted = from.Unwanted,
             DateOfBirth = from.DateOfBirth,
-            Balance = (double)from.TotalAmount,
             Roles = from.Roles.Select(el => (Role)el).ToList(),
-            MainRole = (Role)from.MainRole
-        }
-            .MapName(from);
+            MainRole = (Role)from.MainRole,
+            FullName = from.FullName
+        };
     }
 }
-
 [Map<UserDto>(nameof(Mapper.Map))]
 public partial class User
 {
     public string FirstName { get; set; } = null!;
     public string? LastName { get; set; }
     public int Age { get; set; }
+    [Ignore(Ignore.OnSource)]
+    public string? Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
-    [MapFrom(nameof(UserDto.TotalAmount))]
+    [Map(nameof(UserDto.TotalAmount), Ignore.OnTarget)]
     public double Balance { get; set; }
     public List<Role> Roles { get; set; } = new();
     public Role MainRole { get; set; }
 
-    internal User MapName(UserDto user)
+    internal string FullName
     {
-        (FirstName, LastName) = user.FullName?.Split(",") switch
+        get => $"{ LastName?.Trim()}, { FirstName?.Trim()}";
+        set => (FirstName, LastName) = value?.Split(", ") switch
         {
             [{ } lastName, { } firstName] => (firstName.Trim(), lastName.Trim()),
-            [{ } firstName] => (firstName, null),
-            _ => (null!, null)
+            [{ } firstName] => (firstName, null!),
+            _ => (null!, null!)
         };
-        return this;
     }
 }
 
-[Map<User>]
 public partial class UserDto
 {
-    [MapWith(nameof(MapFullName))]
-    public string FullName { get; set; } = null!;
-    public int Age { get; set; }    
+    public string FullName
+    {
+        get;
+        set;
+    } = null!;
+    public int Count { get; set; }
+    public int Age { get; set; }
+    public string Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
     public (int, string)[] Roles { get; set; } = Array.Empty<(int, string)>();
     public (int, string) MainRole { get; set; } = default;
-    [MapFrom(nameof(User.Balance))]
     public decimal TotalAmount { get; set; }
-    static string MapFullName(User user) => $"{user.LastName?.Trim()}, {user.FirstName?.Trim()}";
 }
 
 public class TestImplicitMapper {
@@ -72,8 +83,18 @@ public class TestImplicitMapper {
     void TestClass() {
         DateTime today = DateTime.Today;
         (int, string)[] roles = { (0, "admin"), (1, "publisher") };
-       
-        User fromDto = (User)new UserDto { FullName = "Gil Mora, Pedro", Age = 32, DateOfBirth = today, Roles = roles, MainRole = roles[0] };
+
+        var user = new UserDto
+        {
+            FullName = "Gil Mora, Pedro",
+            Age = 32,
+            DateOfBirth = today,
+            Roles = roles,
+            Count = 5,
+            TotalAmount = 45.6m,
+            MainRole = roles[0]
+        };
+        User fromDto = (User)user;
         fromDto.Age.Should().Be(32);
         fromDto.FirstName.Should().Be("Pedro");
         fromDto.LastName.Should().Be("Gil Mora");
