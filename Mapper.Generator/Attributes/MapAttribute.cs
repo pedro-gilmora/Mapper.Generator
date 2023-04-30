@@ -1,20 +1,25 @@
-﻿using Mapper.Generator.Constants;
+﻿using RogueGen.Mapping.Constants;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Mapper.Generator.Attributes;
+namespace RogueGen.Mapping.Attributes;
 
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = true)]
 public class MapAttribute<T> : Attribute
 {
-    public MapAttribute(string mapper = "") { }
+    public MapAttribute(string leftMapper = "", string rightMapper = "", Ignore ignore = Ignore.None) { }
+}
+[AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+public class MapAttribute<TSource, TTarget> : Attribute
+{
+    public MapAttribute(string leftMapper = "", string rightMapper = "", Ignore ignore = Ignore.None) { }
 }
 
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = true)]
 public class MapAttribute : Attribute
 {
-    public MapAttribute(string mapper = "", Ignore ignore = Ignore.None) { }
+    public MapAttribute(string mapper, Ignore ignore = Ignore.None) { }
 }
 
 [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = false)]

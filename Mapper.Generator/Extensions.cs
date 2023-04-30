@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-namespace Mvvm.Extensions.Generator
+namespace RogueGen.Mapping.Extensions
 {
     public static class Helpers
     {

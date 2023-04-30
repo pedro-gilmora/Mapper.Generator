@@ -26,17 +26,19 @@
 		<PackageTags>Mapper; Source Generator; C#; </PackageTags>
 		<Nullable>enable</Nullable>
 		<RootNamespace>$(MSBuildProjectName.Replace(" ", "."))</RootNamespace>
+		<Title>Mapping Generator</Title>
+		<PackageProjectUrl>https://github.com/pedro-gilmora/Mapper.Generator</PackageProjectUrl>
 	</PropertyGroup>
 
-	<PropertyGroup Condition=" $(Configuration) == 'Test' ">
+	<!--<PropertyGroup Condition=" $(Configuration) == 'Test' ">
 		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
 		<CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
 	</PropertyGroup>
 
 	<ItemGroup Condition=" $(Configuration) == 'Test' ">
-		<!-- Exclude the output of source generators from the compilation -->
+		--><!-- Exclude the output of source generators from the compilation --><!--
 		<Compile Remove="$(CompilerGeneratedFilesOutputPath)/**/*.cs" />
-	</ItemGroup>
+	</ItemGroup>-->
 
 	<ItemGroup>
 		<None Include="..\ReadMe.md">
