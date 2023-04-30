@@ -1,4 +1,4 @@
-name: Mapper.Generator build and deploy
+name: RogueGen.Mapper >> Build, test and deploy
 
 on:
   push:
