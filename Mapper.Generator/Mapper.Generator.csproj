@@ -28,6 +28,7 @@
 		<RootNamespace>$(MSBuildProjectName.Replace(" ", "."))</RootNamespace>
 		<Title>Mapping Generator</Title>
 		<PackageProjectUrl>https://github.com/pedro-gilmora/Mapper.Generator</PackageProjectUrl>
+		<PackageIcon>_ccb8f9ef-c476-447d-91d5-18f92d769274.jpeg</PackageIcon>
 	</PropertyGroup>
 
 	<!--<PropertyGroup Condition=" $(Configuration) == 'Test' ">
@@ -41,6 +42,10 @@
 	</ItemGroup>-->
 
 	<ItemGroup>
+		<None Include="..\..\..\..\Downloads\_ccb8f9ef-c476-447d-91d5-18f92d769274.jpeg">
+		  <Pack>True</Pack>
+		  <PackagePath>\</PackagePath>
+		</None>
 		<None Include="..\ReadMe.md">
 			<Pack>True</Pack>
 			<PackagePath>\</PackagePath>
