@@ -21,9 +21,9 @@
 			<PrivateAssets>all</PrivateAssets>
 		</PackageReference>
 	</ItemGroup>
-	
+
 	<ItemGroup>
-		<ProjectReference Include="..\Mapper.Generator\Mapper.Generator.csproj" OutputItemType="Analyzer" />
+		<ProjectReference Include="..\SourceCrafter.MappingGenerator\SourceCrafter.MappingGenerator.csproj" OutputItemType="Analyzer" />
 	</ItemGroup>
 
 </Project>

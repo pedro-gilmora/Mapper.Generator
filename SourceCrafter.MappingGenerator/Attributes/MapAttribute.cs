@@ -1,9 +1,9 @@
-﻿using RogueGen.Mapping.Constants;
+﻿using SourceCrafter.Mapping.Constants;
 using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace RogueGen.Mapping.Attributes;
+namespace SourceCrafter.Mapping.Attributes;
 
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct| AttributeTargets.Interface, AllowMultiple = true)]
 public class MapAttribute<T> : Attribute

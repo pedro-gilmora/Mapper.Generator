@@ -8,12 +8,11 @@ using System.Collections.Generic;
 using Microsoft.CodeAnalysis.CSharp;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
-using RogueGen.Mapping.Constants;
-using RogueGen.Mapping.Extensions;
-using System.Runtime.InteropServices;
+using SourceCrafter.Mapping.Constants;
+using SourceCrafter.Mapping.Extensions;
 
-[assembly: InternalsVisibleTo("Mapper.Generator.UnitTests")]
-namespace RogueGen;
+[assembly: InternalsVisibleTo("SourceCrafter.MappingGenerator.UnitTests")]
+namespace SourceCrafter;
 
 [Generator]
 public class MappingGenerator : IIncrementalGenerator
@@ -44,7 +43,7 @@ public class MappingGenerator : IIncrementalGenerator
                 //Collect classes with metadata
                 context.SyntaxProvider
                 .ForAttributeWithMetadataName(
-                    "RogueGen.Mapping.Attributes.MapAttribute`1",
+                    "SourceCrafter.Mapping.Attributes.MapAttribute`1",
                     static (n, _) => n is ClassDeclarationSyntax or RecordDeclarationSyntax or InterfaceDeclarationSyntax,
                     static (ctx, c) => (ctx.Attributes, TypeSymbol: (ITypeSymbol)ctx.TargetSymbol, ctx.SemanticModel)
                 ),
@@ -70,7 +69,7 @@ public class MappingGenerator : IIncrementalGenerator
 
             var _namespace = (assembly.GlobalNamespace.ToDisplayString() is { } ns and not "<global namespace>")
                 ? ns
-                : "RogueGen";
+                : "SourceCrafter";
             var code = new StringBuilder($@"namespace {_namespace};
 
 public static partial class GlobalMappers {{

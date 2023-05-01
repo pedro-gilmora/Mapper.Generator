@@ -1,4 +1,4 @@
-name: RogueGen.Mapper >> Build, test and deploy
+name: 'SourceCrafter.MappingGenerator: Build, test and deploy'
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 jobs:
   build:
     name: .NET 7 Build
-    runs-on: ubuntu-latest
+    runs-on: 'ubuntu-latest'
 
     steps:      
     - uses: actions/checkout@v3
@@ -15,28 +15,18 @@ jobs:
       uses: actions/setup-dotnet@v3
       with:
         dotnet-version: 7.0.x
+
     - name: Restore dependencies
       run: dotnet restore
-    - name: Test
-      run: dotnet test Mapper.Generator.UnitTests/Mapper.Generator.UnitTests.csproj --verbosity normal -c Release
 
-  deploy:
-    name: .NET 7 Deploy to Nuget package
-    if: github.ref_name == 'dev'
-    needs: build
-    runs-on: ubuntu-latest
-    
-  
-    steps:
-    - uses: actions/checkout@v3
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: 7.0.x    
+    - name: Test
+      run: dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release
+
     - name: Pack
       run: |
         without_comma=$(echo "${{ github.event.head_commit.message }}" | sed 's/,/\\u002C/g')
         dotnet pack Mapper.Generator/Mapper.Generator.csproj --verbosity normal -c Release /p:PackageReleaseNotes="$without_comma"
+    
     - name: Publish to Nuget
       run: |
         package="$(find . -wholename '**/Release/*.nupkg' -exec echo "{}" \;)"

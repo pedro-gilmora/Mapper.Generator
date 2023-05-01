@@ -1,4 +1,4 @@
-﻿namespace RogueGen.Mapping.Constants;
+﻿namespace SourceCrafter.Mapping.Constants;
 
 public enum Ignore
 {

@@ -6,15 +6,15 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 // Analyzer 
-using RogueGen.Mapping.Attributes;
-using RogueGen.Mapping.Constants;
+using SourceCrafter.Mapping.Attributes;
+using SourceCrafter.Mapping.Constants;
 
 //Testing purpose
 using System.Security.Principal;
 using FluentAssertions;
 using System.Collections.Immutable;
 
-namespace RogueGen.UnitTests;
+namespace SourceCrafter.UnitTests;
 
 public partial class Role
 {
@@ -96,9 +96,9 @@ public class TestImplicitMapper
     public static void ParseAssembly()
     {
         GetRootAndModel(@"
-[assembly: RogueGen.Mapping.Attributes.Map<
-    RogueGen.UnitTests.IUser,
-    RogueGen.UnitTests.UserDto>]",
+[assembly: SourceCrafter.Mapping.Attributes.Map<
+    SourceCrafter.UnitTests.IUser,
+    SourceCrafter.UnitTests.UserDto>]",
             new[]{
                 typeof(Attribute),
                 typeof(User),
@@ -156,7 +156,7 @@ Extras:
     public static void ParseCode()
     {
         GetRootAndModel(
-            "RogueGen.UnitTests.IUser user;",
+            "SourceCrafter.UnitTests.IUser user;",
             new[] { 
                 typeof(MapAttribute),
                 typeof(Attribute),

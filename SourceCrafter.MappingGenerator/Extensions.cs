@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-namespace RogueGen.Mapping.Extensions
+namespace SourceCrafter.Mapping.Extensions
 {
     public static class Helpers
     {
