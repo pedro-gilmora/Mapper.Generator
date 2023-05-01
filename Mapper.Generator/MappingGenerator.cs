@@ -10,6 +10,7 @@ using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using RogueGen.Mapping.Constants;
 using RogueGen.Mapping.Extensions;
+using System.Runtime.InteropServices;
 
 [assembly: InternalsVisibleTo("Mapper.Generator.UnitTests")]
 namespace RogueGen;
@@ -25,7 +26,7 @@ public class MappingGenerator : IIncrementalGenerator
     private const string Category = "Naming";
 
 #pragma warning disable IDE0052, RE2008 // Quitar miembros privados no leídos
-    private static readonly DiagnosticDescriptor Rule = new (DiagnosticId, Title, MessageFormat, Category, DiagnosticSeverity.Error, isEnabledByDefault: true, description: Description);
+    private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, Category, DiagnosticSeverity.Error, isEnabledByDefault: true, description: Description);
 #pragma warning restore IDE0052, RE2008 // Quitar miembros privados no leídos
 
     static readonly object _lock = new();
@@ -44,7 +45,7 @@ public class MappingGenerator : IIncrementalGenerator
                 context.SyntaxProvider
                 .ForAttributeWithMetadataName(
                     "RogueGen.Mapping.Attributes.MapAttribute`1",
-                    static (n, _) => n is ClassDeclarationSyntax or RecordDeclarationSyntax,
+                    static (n, _) => n is ClassDeclarationSyntax or RecordDeclarationSyntax or InterfaceDeclarationSyntax,
                     static (ctx, c) => (ctx.Attributes, TypeSymbol: (ITypeSymbol)ctx.TargetSymbol, ctx.SemanticModel)
                 ),
                 static (sourceProducer, interfaceToGenerate) =>
@@ -79,7 +80,7 @@ public static partial class GlobalMappers {{
             {
                 var ignore = Ignore.None;
 
-                if (item.AttributeClass is { MetadataName: "MapAttribute`2", TypeArguments: [{ } fromType, { }toType] })
+                if (item.AttributeClass is { MetadataName: "MapAttribute`2", TypeArguments: [{ } fromType, { } toType] })
                 {
                     if (item.ConstructorArguments[2].Value is int value)
                         ignore = (Ignore)value;
@@ -94,11 +95,15 @@ toMapper: {toMapper}";
                         code.Append(@"
     ");
                     mappersCount++;
-                    
+
 
                     List<string> builders = new();
 
-                    BuildConverters(code, fromType, toType, toMapper, fromMapper, fromType.DeclaringSyntaxReferences.Select(a => compilation.GetSemanticModel(a.SyntaxTree)).FirstOrDefault(a => a != null)!, new(), false, builders, item, ignore
+                    var semanticModel = fromType.DeclaringSyntaxReferences
+                        .Select(a => compilation.GetSemanticModel(a.SyntaxTree))
+                        .FirstOrDefault(a => a != null)!;
+
+                    BuildConverters(code, fromType, toType, toMapper, fromMapper, semanticModel, false, builders, item, ignore
 #if DEBUG
                         , ref extraText
 #endif
@@ -107,7 +112,7 @@ toMapper: {toMapper}";
 
             }
 
-            if (mappersCount == 0) 
+            if (mappersCount == 0)
                 return;
 
             code.Append(@"
@@ -136,10 +141,10 @@ Extras:
         {
             for (int i = 0; i < count; i++)
             {
-                if (args[i] is { 
-                    Expression: InvocationExpressionSyntax { 
-                        ArgumentList.Arguments: [{ Expression: MemberAccessExpressionSyntax { Name: { } id } }], 
-                        Expression: SimpleNameSyntax { Identifier.Text: "nameof" } } method 
+                if (args[i] is {
+                    Expression: InvocationExpressionSyntax {
+                        ArgumentList.Arguments: [{ Expression: MemberAccessExpressionSyntax { Name: { } id } }],
+                        Expression: SimpleNameSyntax { Identifier.Text: "nameof" } } method
                 } arg)
                 {
                     switch ((i, arg.NameColon?.Name.Identifier.Text ?? arg.NameEquals?.Name.Identifier.Text))
@@ -165,7 +170,7 @@ Extras:
                         .OfType<IMethodSymbol>()
                         .FirstOrDefault(m =>
 #if DEBUG
-                            m.ReturnType.ToDisplayString() ==  to.ToDisplayString() &&
+                            m.ReturnType.ToDisplayString() == to.ToDisplayString() &&
                             m.Parameters.FirstOrDefault()?.Type?.ToDisplayString() == from.ToDisplayString()
 #else
                             AreSymbolsEquals(m.ReturnType, to) &&
@@ -178,12 +183,12 @@ Extras:
         });
     }
 
-    static void CreateRelatedTypeFiles(SourceProductionContext sourceProducer, SemanticModel model, ITypeSymbol cls, ImmutableArray<AttributeData> attrs)
+    static void CreateRelatedTypeFiles(SourceProductionContext sourceProducer, SemanticModel model, ITypeSymbol _class, ImmutableArray<AttributeData> attrs)
     {
         HashSet<string> usings = new();
         string
-            name = cls.Name,
-            nmspc = cls.ContainingNamespace.ToDisplayString();
+            name = _class.Name,
+            nmspc = _class.ContainingNamespace.ToDisplayString();
 
         try
         {
@@ -192,11 +197,11 @@ Extras:
 #endif
             var code = new StringBuilder($@"namespace {nmspc};
 
-public partial class {name}
+public partial class {GetImplementationClassName(_class)}
 {{
     ");
             var len = code.Length;
-            GetConverters(code, attrs, cls, model, usings
+            GetConverters(code, attrs, _class, model, usings
 #if DEBUG
                 , ref extraText
 #endif
@@ -240,7 +245,7 @@ using {u};")}
         List<string> builders = new();
         foreach (var attr in attrs.AsSpan())
         {
-            var ignore = GetIgnore(attr.ConstructorArguments.ElementAtOrDefault(2));
+            var ignore = GetIgnoreValue(attr.ConstructorArguments.ElementAtOrDefault(2));
 
 
 
@@ -254,7 +259,7 @@ Map<{toClass}>.Ignore: {ignore}";
 #endif
 
             TryResolveMappers(model.Compilation, attr, fromClass, toClass, out var fromMapper, out var toMapper);
-            BuildConverters(code, fromClass, toClass, toMapper, fromMapper, model, usings, isOperator, builders, attr, ignore
+            BuildConverters(code, fromClass, toClass, toMapper, fromMapper, model, isOperator, builders, attr, ignore
 #if DEBUG
         , ref extraText
 #endif
@@ -263,15 +268,14 @@ Map<{toClass}>.Ignore: {ignore}";
     }
 
     internal static void BuildConverters(
-        StringBuilder code, 
-        ITypeSymbol fromClass, 
-        ITypeSymbol toClass, 
-        IMethodSymbol? toMapper, 
-        IMethodSymbol? fromMapper, 
+        StringBuilder code,
+        ITypeSymbol fromType,
+        ITypeSymbol toType,
+        IMethodSymbol? toMapper,
+        IMethodSymbol? fromMapper,
         SemanticModel model,
-        HashSet<string> usings, 
-        bool isClassAttribute, 
-        List<string> builders, 
+        bool isClassAttribute,
+        List<string> builders,
         AttributeData attr,
         Ignore ignore
 #if DEBUG
@@ -279,15 +283,21 @@ Map<{toClass}>.Ignore: {ignore}";
 #endif
     )
     {
-        var fromMetaName = fromClass.MetadataName.Replace('`', '_');
-        var toMetaName = toClass.MetadataName.Replace('`', '_');
+        var fromMetaName = fromType.MetadataName.Replace('`', '_');
+        var toMetaName = toType.MetadataName.Replace('`', '_');
+        var fromTypeFullName = GetType(fromType);
+        var toTypeFullName = GetType(toType);
         Action<StringBuilder>? propsBuilder = null;
         Action<StringBuilder>? reversePropsBuilder = null;
         var appendedProperty = false;
+#if DEBUG
+        extraText += $@"
+From {GetType(fromType, true)} to {GetType(toType, true)}";
+#endif
 
         if (ignore != Ignore.OnTarget)
         {
-            GetInitializers(fromClass, toClass, model, usings, ref propsBuilder, ref reversePropsBuilder, InsertComma, ignore
+            GetInitializers(fromType, toType, model, ref propsBuilder, ref reversePropsBuilder, InsertComma, ignore
 #if DEBUG
                 , ref extraText
 #endif
@@ -295,8 +305,8 @@ Map<{toClass}>.Ignore: {ignore}";
             code
                 .Append($@"
     public static {(isClassAttribute
-                        ? $"explicit operator {fromClass}("
-                        : $"{fromClass} To{fromMetaName}(this ")}{toClass} from)
+                        ? $"explicit operator {GetType(fromType, true)}("
+                        : $"{fromTypeFullName} To{fromMetaName}(this ")}{(isClassAttribute ? GetType(toType, true) : toTypeFullName)} from)
     {{
         return ");
 
@@ -307,8 +317,7 @@ Map<{toClass}>.Ignore: {ignore}";
             }
             else
             {
-
-                code.Append($"new {fromClass} {{");
+                code.Append($"new {GetType(fromType, true)} {{");
 
                 propsBuilder?.Invoke(code);
 
@@ -325,7 +334,7 @@ Map<{toClass}>.Ignore: {ignore}";
         if (ignore != Ignore.OnSource)
         {
             if (ignore == Ignore.OnTarget)
-                GetInitializers(fromClass, toClass, model, usings, ref propsBuilder, ref reversePropsBuilder, InsertComma, ignore
+                GetInitializers(fromType, toType, model, ref propsBuilder, ref reversePropsBuilder, InsertComma, ignore
 #if DEBUG
                     , ref extraText
 #endif
@@ -334,8 +343,8 @@ Map<{toClass}>.Ignore: {ignore}";
             code
                 .Append($@"
     public static {(isClassAttribute
-                        ? $"explicit operator {toClass}("
-                        : $"{toClass} To{toMetaName}(this ")}{fromClass} from)
+                        ? $"explicit operator {(isClassAttribute ? GetType(toType, true) : toTypeFullName)}("
+                        : $"{toTypeFullName} To{toMetaName}(this ")}{(isClassAttribute ? GetType(fromType, true) : fromTypeFullName)} from)
     {{
         return ");
 
@@ -345,14 +354,12 @@ Map<{toClass}>.Ignore: {ignore}";
 
             else
             {
-                code.Append($"new {toClass} {{");
+                code.Append($"new {GetType(toType, true)} {{");
                 appendedProperty = false;
                 reversePropsBuilder?.Invoke(code);
-
                 code.Append(@"
         };");
             }
-
             code.Append(@"
     }");
         }
@@ -366,23 +373,22 @@ Map<{toClass}>.Ignore: {ignore}";
         }
     }
 
-    private static object GetStaticMethodName(IMethodSymbol fromMapper)
+    private static object GetStaticMethodName(IMethodSymbol mapper)
     {
-        return $"{GetType(fromMapper.ContainingType, true)}.{fromMapper.Name}";
+        return $"{GetType(mapper.ContainingType, true)}.{mapper.Name}";
     }
 
-    private static Ignore GetIgnore(TypedConstant possibleSecondArgument) =>
+    private static Ignore GetIgnoreValue(TypedConstant possibleSecondArgument) =>
         possibleSecondArgument is { Value: int mapValue }
                     ? (Ignore)mapValue
                     : Ignore.None;
 
     static void GetInitializers(
-        ITypeSymbol fromClass, 
-        ITypeSymbol toClass, 
+        ITypeSymbol fromClass,
+        ITypeSymbol toClass,
         SemanticModel model,
-        HashSet<string> usings,  
         ref Action<StringBuilder>? buildMap,
-        ref Action<StringBuilder>? buildReverseMap, 
+        ref Action<StringBuilder>? buildReverseMap,
         Action appendComma,
         Ignore parentIgnore
 #if DEBUG
@@ -414,10 +420,10 @@ Map<{toClass}>.Ignore: {ignore}";
                 )
             {
                 if (parentIgnore != Ignore.OnTarget && ignore != Ignore.OnTarget)
-                    buildMap += (StringBuilder sb) => BuildPropertyMap(usings, fromMember, toMember, sb.Append, appendComma);
+                    buildMap += (StringBuilder sb) => BuildPropertyMap(fromMember, toMember, sb.Append, appendComma);
 
                 if (parentIgnore != Ignore.OnSource && ignore != Ignore.OnSource)
-                    buildReverseMap += (StringBuilder sb) => BuildPropertyMap(usings, toMember, fromMember, sb.Append, appendComma);
+                    buildReverseMap += (StringBuilder sb) => BuildPropertyMap(toMember, fromMember, sb.Append, appendComma);
             }
         }
     }
@@ -499,7 +505,7 @@ Attr: {attrName}: ignoreValue: {ignore}";
                 ignore = ignore2;
                 ignoreItems++;
             }
-            if(ignoreItems > 0)
+            if (ignoreItems > 0)
             {
 
             }
@@ -511,9 +517,6 @@ Attr: {attrName}: ignoreValue: {ignore}";
         }
         return false;
     }
-
-
-
     static (string, ExpressionSyntax?, Ignore) GetAttrInfo(AttributeData attr)
     {
         if (attr.AttributeClass?.Name is not ("MapAttribute" or "IgnoreAttribute"))
@@ -538,72 +541,82 @@ Attr: {attrName}: ignoreValue: {ignore}";
         };
     }
     static void BuildPropertyMap(
-        HashSet<string> usings, 
-        ISymbol fromMember, 
-        ISymbol toMember, 
-        Func<string, StringBuilder> append, 
+        ISymbol toMember,
+        ISymbol fromMember,
+        Func<string, StringBuilder> append,
         Action appendComma)
     {
-        if (fromMember is IPropertySymbol { IsReadOnly: true } || toMember is IPropertySymbol { IsWriteOnly: true })
+        if (toMember is IPropertySymbol { IsReadOnly: true } || fromMember is IPropertySymbol { IsWriteOnly: true })
             return;
 
         appendComma();
 
-        var assignment = $"from.{toMember.Name}";
-        var mapMemberType = toMember is IFieldSymbol fldMap
+        var valueExpression = $"from.{fromMember.Name}";
+        var fromMemberType = fromMember is IFieldSymbol fldMap
             ? fldMap.Type
-            : ((IPropertySymbol)toMember).Type;
-        var memberType = fromMember is IFieldSymbol fld
-            ? fld.Type
             : ((IPropertySymbol)fromMember).Type;
+        var toMemberType = toMember is IFieldSymbol fld
+            ? fld.Type
+            : ((IPropertySymbol)toMember).Type;
 
-        if (!AreSymbolsEquals(memberType, mapMemberType) &&
-            (!IsEnumerable(memberType) || !IsEnumerable(mapMemberType) ||
-            !ProcessEnumerableConversion(usings, memberType, mapMemberType, memberType.NullableAnnotation == NullableAnnotation.Annotated, ref assignment)))
+        if (!AreSymbolsEquals(toMemberType, fromMemberType) &&
+            (!IsEnumerable(toMemberType) || !IsEnumerable(fromMemberType) ||
+            !ProcessEnumerableConversion(toMemberType, fromMemberType, ref valueExpression)))
 
-            assignment = $"({GetType(usings, memberType)}){assignment}";
+            valueExpression = GetConversion(valueExpression, toMemberType, fromMemberType);
 
         append($@"
-	        {fromMember.Name} = {assignment}");
+	        {toMember.Name} = {valueExpression}");
+    }
+
+    private static string GetConversion(string expression, ITypeSymbol toType, ITypeSymbol fromType)
+    {
+        var typeName = GetType(toType);
+        if (typeName[^1] != '?' && fromType.NullableAnnotation == NullableAnnotation.Annotated)
+            expression += "!";
+        return $"({typeName}){expression}";
+    }
+
+    private static bool IsNotNullable(ITypeSymbol fromType)
+    {
+        return fromType.NullableAnnotation != NullableAnnotation.Annotated && (fromType.IsValueType || fromType.IsTupleType);
     }
 
     static bool ProcessEnumerableConversion(
-        HashSet<string> usings, 
-        ITypeSymbol targetType, 
-        ITypeSymbol mapType, 
-        bool isNullable, 
-        ref string assignment)
+        ITypeSymbol toType,
+        ITypeSymbol fromType,
+        ref string valueExpression)
     {
-        var nullCheck = isNullable ? "?" : "";
+        var nullable = toType.NullableAnnotation == NullableAnnotation.Annotated ? "?" : "";
 
         ITypeSymbol
-            targetCollectionType = targetType is IArrayTypeSymbol { ElementType: { } eltype } arrSymb
+            toCollectionType = toType is IArrayTypeSymbol { ElementType: { } eltype } arrSymb
                 ? eltype
-                : ((INamedTypeSymbol)targetType).TypeArguments[0],
-            sourceCollectionType = mapType is IArrayTypeSymbol arrSymb2
+                : ((INamedTypeSymbol)toType).TypeArguments[0],
+            fromCollectionType = fromType is IArrayTypeSymbol arrSymb2
                 ? arrSymb2.ElementType
-                : ((INamedTypeSymbol)mapType).TypeArguments[0];
+                : ((INamedTypeSymbol)fromType).TypeArguments[0];
 
-        var targetCollectionTypeName = GetType(usings, targetCollectionType);
+        var toCollectionTypeName = GetType(toCollectionType);
 
-        if (!AreSymbolsEquals(targetCollectionType, sourceCollectionType))
+        if (!AreSymbolsEquals(toCollectionType, fromCollectionType))
         {
-            assignment += $"{nullCheck}.Select(el => ({targetCollectionTypeName})el)";
+            valueExpression += $"{nullable}.Select(el => {GetConversion("el", toCollectionType, fromCollectionType)})";
         }
-        if (targetType is IArrayTypeSymbol)
+        if (toType is IArrayTypeSymbol)
         {
-            assignment += $"{nullCheck}.ToArray()";
+            valueExpression += $"{nullable}.ToArray()";
         }
-        else if (targetType.Name.EndsWith("List"))
+        else if (toType.Name.EndsWith("List"))
         {
-            assignment += $"{nullCheck}.ToList()";
+            valueExpression += $"{nullable}.ToList()";
 
-            if (targetType.Name.StartsWith("IReadOnlyList"))
-                assignment = $"({targetCollectionTypeName}){assignment}";
+            if (toType.Name.StartsWith("IReadOnlyList"))
+                valueExpression = $"({toCollectionTypeName}{nullable}){valueExpression}";
         }
-        else if (targetType.Name.EndsWith("HashSet"))
+        else if (toType.Name.EndsWith("HashSet"))
         {
-            assignment += $"{nullCheck}.ToHashSet()";
+            valueExpression += $"{nullable}.ToHashSet()";
         }
         else
             return false;
@@ -628,9 +641,9 @@ Attr: {attrName}: ignoreValue: {ignore}";
     }
 
     static bool TryMapFromRight(
-        ReadOnlySpan<ISymbol> 
-        toMembers, 
-        ISymbol fromMember, 
+        ReadOnlySpan<ISymbol>
+        toMembers,
+        ISymbol fromMember,
         out ISymbol toMember)
     {
         toMember = null!;
@@ -647,68 +660,61 @@ Attr: {attrName}: ignoreValue: {ignore}";
         return false;
     }
 
-    static string GetType(HashSet<string> usings, ITypeSymbol type, bool useNamespace = false)
+    static string GetType(ITypeSymbol type, bool useInterfaceImplName = false)
     {
-        var possibleNamsepace = "";
-        if (useNamespace && type.ContainingNamespace?.ToString() is { } nmspc)
+        return type switch
         {
-            RegisterNamespace(usings, possibleNamsepace = nmspc);
-            possibleNamsepace += ".";
-        }
-
-        return possibleNamsepace + type switch
-        {
-            INamedTypeSymbol { Name: "Nullable", TypeArguments: [{ } underlyingType] }
-                => $"{GetType(usings, underlyingType)}?",
-
-            INamedTypeSymbol { IsTupleType: true, TupleElements: var elements }
-                => $"({elements.Join(f => $"{GetType(usings, f.Type)}{(f.IsExplicitlyNamedTupleElement ? $" {f.Name}" : "")}", ", ")})",
-
-            INamedTypeSymbol { Name: var name, TypeArguments: { Length: > 0 } generics }
-                => $"{name}<{generics.Join(g => GetType(usings, g), ", ")}>",
 
             IArrayTypeSymbol { ElementType: { } arrayType }
-                => GetType(usings, arrayType) + "[]",
+                => GetType(arrayType) + "[]",
+
+            INamedTypeSymbol { Name: "Nullable", TypeArguments: [{ } underlyingType] }
+                => $"{GetType(underlyingType)}?",
+
+            INamedTypeSymbol { IsTupleType: true, TupleElements: var elements }
+                => $"({elements.Join(f => $"{GetType(f.Type)}{(f.IsExplicitlyNamedTupleElement ? $" {f.Name}" : "")}", ", ")})",
+
+            INamedTypeSymbol { Name: var name, TypeArguments: { Length: > 0 } generics }
+                => GetPossibleNamsepace(type) + $"{name}<{generics.Join(g => GetType(g), ", ")}>",
             _
-                => IsPrimitive((INamedTypeSymbol)type) ? type.ToDisplayString() : type.Name
+                => GetTypeName(type, useInterfaceImplName)
         };
     }
 
-    static string GetType(ITypeSymbol type, bool useNamespace = false)
+    private static string GetPossibleNamsepace(ITypeSymbol type)
     {
-        var possibleNamsepace = useNamespace && type.ContainingNamespace?.ToString() is { Length: > 0 } nmspc
-            ? $"{nmspc}."
-            : "";
-
-        return possibleNamsepace + type switch
-        {
-            INamedTypeSymbol { Name: "Nullable", TypeArguments: [{ } underlyingType] }
-                => $"{GetType(underlyingType, useNamespace)}?",
-
-            INamedTypeSymbol { IsTupleType: true, TupleElements: var elements }
-                => $"({elements.Join(f => $"{GetType(f.Type, useNamespace)}{(f.IsExplicitlyNamedTupleElement ? $" {f.Name}" : "")}", ", ")})",
-
-            INamedTypeSymbol { Name: var name, TypeArguments: { Length: > 0 } generics }
-                => $"{name}<{generics.Join(g => GetType(g, useNamespace), ", ")}>",
-
-            IArrayTypeSymbol { ElementType: { } arrayType }
-                => GetType(arrayType, useNamespace) + "[]",
-            _
-                => IsPrimitive((INamedTypeSymbol)type) ? type.ToDisplayString() : type.Name
-        };
+        return type.ContainingNamespace?.ToString() is { Length: > 0 } nmspc
+                    ? $"{nmspc}."
+                    : "";
     }
 
-    static void RegisterNamespace(HashSet<string> usings, params string[] namespaces)
+    private static string GetTypeName(ITypeSymbol type, bool useInterfaceImplName)
     {
-        foreach (var ns in namespaces)
-            if (ns != "<global namespace>")
-                usings.Add(ns);
+        var isPrimitive = IsPrimitive((INamedTypeSymbol)type);
+        var typeName = isPrimitive ? type.ToDisplayString() : type.Name;
+
+        if (useInterfaceImplName && typeName[0] == 'I' && type.TypeKind == TypeKind.Interface)
+            typeName = typeName[1..];
+
+        if (type.NullableAnnotation == NullableAnnotation.Annotated)
+            typeName += "?";
+
+        return isPrimitive ? typeName : GetPossibleNamsepace(type) + typeName;
+    }
+
+    private static string GetImplementationClassName(ITypeSymbol type)
+    {
+        var isPrimitive = IsPrimitive((INamedTypeSymbol)type);
+        var typeName = isPrimitive ? type.ToDisplayString() : type.Name;
+
+        return (typeName[0] == 'I' && type.TypeKind == TypeKind.Interface) 
+            ? typeName[1..]
+            :typeName;
     }
 
     static bool IsPrimitive(INamedTypeSymbol? type)
     {
-        return type?.SpecialType switch
-        {
+        return type?.SpecialType is
             SpecialType.System_Boolean or
             SpecialType.System_SByte or
             SpecialType.System_Int16 or
@@ -722,8 +728,6 @@ Attr: {attrName}: ignoreValue: {ignore}";
             SpecialType.System_Single or
             SpecialType.System_Double or
             SpecialType.System_Char or
-            SpecialType.System_String => true,
-            _ => false
-        };
+            SpecialType.System_String;
     }
 }

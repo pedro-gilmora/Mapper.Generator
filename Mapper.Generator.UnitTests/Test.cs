@@ -12,6 +12,7 @@ using RogueGen.Mapping.Constants;
 //Testing purpose
 using System.Security.Principal;
 using FluentAssertions;
+using System.Collections.Immutable;
 
 namespace RogueGen.UnitTests;
 
@@ -21,7 +22,9 @@ public partial class Role
     public string Name { get; set; } = null!;
 
     public static explicit operator Role((int id, string name) role) => new() { Id = role.id, Name = role.name };
+    public static explicit operator Role?((int id, string name)? role) => role is { } a ? new() { Id = a.id, Name = a.name } : null;
     public static explicit operator (int id, string name)(Role role) => (role.Id, role.Name);
+    public static explicit operator (int id, string name)?(Role? role) => role != null ? (role.Id, role.Name) : null;
 }
 
 public partial class User
@@ -29,10 +32,23 @@ public partial class User
     public int Count { get; set; }
 
 }
-
-public partial class UserBase
+[Map<UserDto>]
+public interface IUser
 {
+    string FullName { get; set; }
+    int Age { get; set; }
 
+    [Ignore(Ignore.OnSource)]
+    string? Unwanted { get; set; }
+    DateTime DateOfBirth { get; set; }
+    [Map(nameof(UserDto.TotalAmount), Ignore.OnTarget)]
+    double Balance { get; set; }
+    List<Role> Roles { get; set; }
+    Role? MainRole { get; set; }
+}
+
+public partial class User : IUser
+{
     internal string FullName
     {
         get => $"{LastName?.Trim()}, {FirstName?.Trim()}";
@@ -46,16 +62,10 @@ public partial class UserBase
     public string FirstName { get; set; } = null!;
     public string? LastName { get; set; }
     public int Age { get; set; }
-}
-
-
-[Map<UserDto>]
-public partial class User : UserBase
-{
+    string IUser.FullName { get => FullName; set => FullName = value; }
     [Ignore(Ignore.OnSource)]
     public string? Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
-    [Map(nameof(UserDto.TotalAmount), Ignore.OnTarget)]
     public double Balance { get; set; }
     public List<Role> Roles { get; set; } = new();
     public Role? MainRole { get; set; }
@@ -69,10 +79,10 @@ public partial class UserDto
     public string? Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
     public (int, string)[] Roles { get; set; } = Array.Empty<(int, string)>();
-    public (int, string) MainRole { get; set; } = default;
+    public (int, string)? MainRole { get; set; }
     public decimal TotalAmount { get; set; }
 }
-[Map<WindowsIdentity>(nameof(GlobalMappers.MapToWindowsIdentity))]
+//[Map<WindowsIdentity>(nameof(GlobalMappers.MapToWindowsIdentity))]
 public partial class WindowsUser
 {
     public string Name { get; set; } = null!;
@@ -82,14 +92,13 @@ public partial class WindowsUser
 public class TestImplicitMapper
 {
 
-#if DEBUG
     [Fact]
     public static void ParseAssembly()
     {
-        GetRootAndModel(@"[assembly: RogueGen.Mapping.Attributes.Map<
-    RogueGen.UnitTests.WindowsUser,
-    System.Security.Principal.WindowsIdentity>(
-        nameof(RogueGen.GlobalMappers.MapToWindowsIdentity))]",
+        GetRootAndModel(@"
+[assembly: RogueGen.Mapping.Attributes.Map<
+    RogueGen.UnitTests.IUser,
+    RogueGen.UnitTests.UserDto>]",
             new[]{
                 typeof(Attribute),
                 typeof(User),
@@ -120,7 +129,7 @@ public class TestImplicitMapper
 
             MappingGenerator.TryResolveMappers(compilation, attr, fromClass, toClass, out var fromMapper, out var toMapper);
 
-            MappingGenerator.BuildConverters(code, fromClass, toClass, toMapper, fromMapper, model, usings, false, builders, attr, ignore
+            MappingGenerator.BuildConverters(code, fromClass, toClass, toMapper, fromMapper, model, false, builders, attr, ignore
 #if DEBUG
         , ref extra
 #endif
@@ -141,31 +150,24 @@ Extras:
 #endif
         }
     }
-#endif
 
 
     [Fact]
     public static void ParseCode()
     {
-        SyntaxTree tree = CSharpSyntaxTree.ParseText(@"RogueGen.UnitTests.User user;");
+        GetRootAndModel(
+            "RogueGen.UnitTests.IUser user;",
+            new[] { 
+                typeof(MapAttribute),
+                typeof(Attribute),
+                typeof(User)
+            },
+            out var compilation, 
+            out var root, 
+            out var semanticModel
+            );
 
-        // get the root node of the syntax tree
-        var root = tree.GetRoot();
-
-        var mapAttrReference = MetadataReference.CreateFromFile(typeof(MapAttribute).Assembly.Location);
-
-        var compilation = CSharpCompilation
-            .Create(
-                "Temp",
-                new[] { tree },
-                new[]{
-                    MetadataReference.CreateFromFile(typeof(Attribute).Assembly.Location),
-                    mapAttrReference,
-                    MetadataReference.CreateFromFile(typeof(User).Assembly.Location)
-                });
-        var e = compilation.SyntaxTrees;
-        var semanticModel = compilation.GetSemanticModel(tree);
-        foreach (var cls in tree.GetRoot().DescendantNodes().OfType<VariableDeclarationSyntax>())
+        foreach (var cls in root.DescendantNodes().OfType<VariableDeclarationSyntax>())
         {
             if (semanticModel.GetSymbolInfo(cls.Type).Symbol is not ITypeSymbol type) continue;
             StringBuilder code = new();
@@ -197,7 +199,9 @@ Extras:
     [Fact]
     public void TestExternalClass()
     {
+#pragma warning disable CA1416 // Validar la compatibilidad de la plataforma
         var winUser = WindowsIdentity.GetCurrent()!.ToWindowsUser();
+#pragma warning restore CA1416 // Validar la compatibilidad de la plataforma
         winUser.Should().NotBeNull();
         winUser.Name.Should().Be("DEVSTATION\\Pedro");
         winUser.IsAuthenticated.Should().BeTrue();
@@ -250,11 +254,9 @@ Extras:
                 assemblies
                     .Select(a => a.Assembly.Location)
                     .Distinct()
-                    .Select(l => MetadataReference.CreateFromFile(l))
-                    .ToArray()
-            );
+                    .Select(r => MetadataReference.CreateFromFile(r))
+                    .ToImmutableArray());
 
         model = compilation.GetSemanticModel(tree);
     }
-
 }

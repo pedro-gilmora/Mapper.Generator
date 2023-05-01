@@ -5,7 +5,7 @@ using System.Text;
 
 namespace RogueGen.Mapping.Attributes;
 
-[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = true)]
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct| AttributeTargets.Interface, AllowMultiple = true)]
 public class MapAttribute<T> : Attribute
 {
     public MapAttribute(string leftMapper = "", string rightMapper = "", Ignore ignore = Ignore.None) { }
