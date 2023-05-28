@@ -31,6 +31,10 @@
 		<PackageIcon>logo.jpeg</PackageIcon>
 	</PropertyGroup>
 
+	<ItemGroup>
+	  <Compile Remove="Extensions.cs" />
+	</ItemGroup>
+
 	<!--<PropertyGroup Condition=" $(Configuration) == 'Test' ">
 		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
 		<CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
@@ -66,5 +70,11 @@
 	<ItemGroup Condition=" '$(Configuration)' == 'Release' ">
 		<None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
 	</ItemGroup>
+
+	<Import Project="..\..\SourceCrafter.Extensions\SourceCrafter.Extensions.Collections\SourceCrafter.Extensions.Collections.projitems" Label="Shared" />
+
+	<Import Project="..\..\SourceCrafter.Extensions\SourceCrafter.Extensions.String\SourceCrafter.Extensions.String.projitems" Label="Shared" />
+
+	<Import Project="..\..\SourceCrafter.Extensions\SourceCrafter.Extensions.Roslyn\SourceCrafter.Extensions.Roslyn.projitems" Label="Shared" />
 
 </Project>

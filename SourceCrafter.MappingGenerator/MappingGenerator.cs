@@ -9,7 +9,6 @@ using Microsoft.CodeAnalysis.CSharp;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using SourceCrafter.Mapping.Constants;
-using SourceCrafter.Mapping.Extensions;
 
 [assembly: InternalsVisibleTo("SourceCrafter.MappingGenerator.UnitTests")]
 namespace SourceCrafter;
@@ -17,16 +16,11 @@ namespace SourceCrafter;
 [Generator]
 public class MappingGenerator : IIncrementalGenerator
 {
-    public const string DiagnosticId = "NotAllowedIgnoreAndMap";
-
-    private static readonly LocalizableString Title = "Two attributes on the same property";
-    private static readonly LocalizableString MessageFormat = "Property '{0}' has both, Ignore and Map attributes";
-    private static readonly LocalizableString Description = "Ignore and Map attributes attributes should not be present on the same property.";
-    private const string Category = "Naming";
-
-#pragma warning disable IDE0052, RE2008 // Quitar miembros privados no leídos
-    private static readonly DiagnosticDescriptor Rule = new(DiagnosticId, Title, MessageFormat, Category, DiagnosticSeverity.Error, isEnabledByDefault: true, description: Description);
-#pragma warning restore IDE0052, RE2008 // Quitar miembros privados no leídos
+    internal static SymbolDisplayFormat GlobalizedNamespace = new(
+        globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Included,
+        typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
+        genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeVariance,
+        miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
     static readonly object _lock = new();
     static readonly Func<ISymbol?, ISymbol?, bool> AreSymbolsEquals = SymbolEqualityComparer.Default.Equals;
@@ -182,12 +176,12 @@ Extras:
         });
     }
 
-    static void CreateRelatedTypeFiles(SourceProductionContext sourceProducer, SemanticModel model, ITypeSymbol _class, ImmutableArray<AttributeData> attrs)
+    static void CreateRelatedTypeFiles(SourceProductionContext sourceProducer, SemanticModel model, ITypeSymbol type, ImmutableArray<AttributeData> attrs)
     {
         HashSet<string> usings = new();
         string
-            name = _class.Name,
-            nmspc = _class.ContainingNamespace.ToDisplayString();
+            name = type.Name,
+            nmspc = type.ContainingNamespace.ToDisplayString();
 
         try
         {
@@ -196,11 +190,11 @@ Extras:
 #endif
             var code = new StringBuilder($@"namespace {nmspc};
 
-public partial class {GetImplementationClassName(_class)}
+public partial class {name}
 {{
     ");
             var len = code.Length;
-            GetConverters(code, attrs, _class, model, usings
+            GetConverters(code, attrs, type, model, usings
 #if DEBUG
                 , ref extraText
 #endif
@@ -246,8 +240,6 @@ using {u};")}
         {
             var ignore = GetIgnoreValue(attr.ConstructorArguments.ElementAtOrDefault(2));
 
-
-
             if (attr.AttributeClass is not { MetadataName: "MapAttribute`1" } || ignore is Ignore.Both)
                 continue;
 
@@ -282,16 +274,16 @@ Map<{toClass}>.Ignore: {ignore}";
 #endif
     )
     {
-        var fromMetaName = fromType.MetadataName.Replace('`', '_');
+        var fromMetaName =  fromType.MetadataName.Replace('`', '_');
         var toMetaName = toType.MetadataName.Replace('`', '_');
-        var fromTypeFullName = GetType(fromType);
-        var toTypeFullName = GetType(toType);
+        var fromTypeFullName = fromType.ToDisplayString(GlobalizedNamespace);
+        var toTypeFullName = toType.ToDisplayString(GlobalizedNamespace);
         Action<StringBuilder>? propsBuilder = null;
         Action<StringBuilder>? reversePropsBuilder = null;
         var appendedProperty = false;
 #if DEBUG
         extraText += $@"
-From {GetType(fromType, true)} to {GetType(toType, true)}";
+From {fromTypeFullName} to {toTypeFullName}";
 #endif
 
         if (ignore != Ignore.OnTarget)
@@ -304,8 +296,8 @@ From {GetType(fromType, true)} to {GetType(toType, true)}";
             code
                 .Append($@"
     public static {(isClassAttribute
-                        ? $"explicit operator {GetType(fromType, true)}("
-                        : $"{fromTypeFullName} To{fromMetaName}(this ")}{(isClassAttribute ? GetType(toType, true) : toTypeFullName)} from)
+                        ? $"explicit operator {fromTypeFullName}("
+                        : $"{fromTypeFullName} To{fromMetaName}(this ")}{toTypeFullName} from)
     {{
         return ");
 
@@ -316,7 +308,8 @@ From {GetType(fromType, true)} to {GetType(toType, true)}";
             }
             else
             {
-                code.Append($"new {GetType(fromType, true)} {{");
+                code.Append($@"new {fromTypeFullName} 
+        {{");
 
                 propsBuilder?.Invoke(code);
 
@@ -342,8 +335,8 @@ From {GetType(fromType, true)} to {GetType(toType, true)}";
             code
                 .Append($@"
     public static {(isClassAttribute
-                        ? $"explicit operator {(isClassAttribute ? GetType(toType, true) : toTypeFullName)}("
-                        : $"{toTypeFullName} To{toMetaName}(this ")}{(isClassAttribute ? GetType(fromType, true) : fromTypeFullName)} from)
+                        ? $"explicit operator {toTypeFullName}("
+                        : $"{toTypeFullName} To{toMetaName}(this ")}{fromTypeFullName} from)
     {{
         return ");
 
@@ -353,7 +346,7 @@ From {GetType(fromType, true)} to {GetType(toType, true)}";
 
             else
             {
-                code.Append($"new {GetType(toType, true)} {{");
+                code.Append($"new {toTypeFullName} {{");
                 appendedProperty = false;
                 reversePropsBuilder?.Invoke(code);
                 code.Append(@"
@@ -374,7 +367,7 @@ From {GetType(fromType, true)} to {GetType(toType, true)}";
 
     private static object GetStaticMethodName(IMethodSymbol mapper)
     {
-        return $"{GetType(mapper.ContainingType, true)}.{mapper.Name}";
+        return $"{mapper.ContainingType.ToDisplayString(GlobalizedNamespace)}.{mapper.Name}";
     }
 
     private static Ignore GetIgnoreValue(TypedConstant possibleSecondArgument) =>
@@ -475,7 +468,7 @@ Attr: {attrName}: ignoreValue: {ignore}";
             {
                 Expression: IdentifierNameSyntax
                 {
-                    //Is nameof expression
+                    //Is nameof fromExpression
                     Identifier.Text: "nameof"
                 },
                 ArgumentList.Arguments: [
@@ -527,7 +520,10 @@ Attr: {attrName}: ignoreValue: {ignore}";
         return (name, args, attr.ConstructorArguments) switch
         {
             ("Map", [{ Expression: { } expr }, ..], var ctorArgs) => (
-                name, expr, ctorArgs is [_, { Value: int mapValue }] && (Ignore)mapValue is { } val and not Ignore.Both ? val : Ignore.None),
+                name, 
+                expr, 
+                ctorArgs is [_, { Value: int mapValue }] && (Ignore)mapValue is { } val and not Ignore.Both ? val : Ignore.None
+            ),
 
             ("Ignore", _, var ctorArgs) => (
                 name,
@@ -545,12 +541,13 @@ Attr: {attrName}: ignoreValue: {ignore}";
         Func<string, StringBuilder> append,
         Action appendComma)
     {
-        if (toMember is IPropertySymbol { IsReadOnly: true } || fromMember is IPropertySymbol { IsWriteOnly: true })
+        if (toMember is IPropertySymbol { IsReadOnly: true } or IFieldSymbol { IsReadOnly: true } || fromMember is IPropertySymbol { IsWriteOnly: true })
             return;
 
         appendComma();
 
-        var valueExpression = $"from.{fromMember.Name}";
+        var fromExpression = $"from.{fromMember.Name}";
+
         var fromMemberType = fromMember is IFieldSymbol fldMap
             ? fldMap.Type
             : ((IPropertySymbol)fromMember).Type;
@@ -560,33 +557,33 @@ Attr: {attrName}: ignoreValue: {ignore}";
 
         if (!AreSymbolsEquals(toMemberType, fromMemberType) &&
             (!IsEnumerable(toMemberType) || !IsEnumerable(fromMemberType) ||
-            !ProcessEnumerableConversion(toMemberType, fromMemberType, ref valueExpression)))
+            !ProcessEnumerableConversion(ref fromExpression, toMemberType, fromMemberType)))
 
-            valueExpression = GetConversion(valueExpression, toMemberType, fromMemberType);
+            fromExpression = GetConversion(fromExpression, toMemberType, fromMemberType);
 
         append($@"
-	        {toMember.Name} = {valueExpression}");
+	        {toMember.Name} = {fromExpression}");
     }
 
-    private static string GetConversion(string expression, ITypeSymbol toType, ITypeSymbol fromType)
+    private static string GetConversion(string fromExpression, ITypeSymbol toType, ITypeSymbol fromType)
     {
-        var typeName = GetType(toType);
-        if (typeName[^1] != '?' && fromType.NullableAnnotation == NullableAnnotation.Annotated)
-            expression += "!";
-        return $"({typeName}){expression}";
-    }
+        var (isToNullable, isFromNullable) = (toType.IsNullable(), fromType.IsNullable());
+        var toTypeCastType = toType.ToDisplayString(GlobalizedNamespace);
 
-    private static bool IsNotNullable(ITypeSymbol fromType)
-    {
-        return fromType.NullableAnnotation != NullableAnnotation.Annotated && (fromType.IsValueType || fromType.IsTupleType);
+        if (isToNullable && !isFromNullable)
+            toTypeCastType += "?";
+        else if (!isToNullable && isFromNullable)
+            fromExpression += "!";
+        /*to:{isToNullable}*//*fromNullable:{isFromNullable}*/
+        return $"({toTypeCastType}){fromExpression}";
     }
 
     static bool ProcessEnumerableConversion(
+        ref string valueExpression,
         ITypeSymbol toType,
-        ITypeSymbol fromType,
-        ref string valueExpression)
+        ITypeSymbol fromType)
     {
-        var nullable = toType.NullableAnnotation == NullableAnnotation.Annotated ? "?" : "";
+        var nullable = toType.IsNullable() ? "?" : "";
 
         ITypeSymbol
             toCollectionType = toType is IArrayTypeSymbol { ElementType: { } eltype } arrSymb
@@ -596,7 +593,7 @@ Attr: {attrName}: ignoreValue: {ignore}";
                 ? arrSymb2.ElementType
                 : ((INamedTypeSymbol)fromType).TypeArguments[0];
 
-        var toCollectionTypeName = GetType(toCollectionType);
+        var toCollectionTypeName = toCollectionType.ToDisplayString(GlobalizedNamespace);
 
         if (!AreSymbolsEquals(toCollectionType, fromCollectionType))
         {
@@ -657,58 +654,6 @@ Attr: {attrName}: ignoreValue: {ignore}";
         }
 
         return false;
-    }
-
-    static string GetType(ITypeSymbol type, bool useInterfaceImplName = false)
-    {
-        return type switch
-        {
-
-            IArrayTypeSymbol { ElementType: { } arrayType }
-                => GetType(arrayType) + "[]",
-
-            INamedTypeSymbol { Name: "Nullable", TypeArguments: [{ } underlyingType] }
-                => $"{GetType(underlyingType)}?",
-
-            INamedTypeSymbol { IsTupleType: true, TupleElements: var elements }
-                => $"({elements.Join(f => $"{GetType(f.Type)}{(f.IsExplicitlyNamedTupleElement ? $" {f.Name}" : "")}", ", ")})",
-
-            INamedTypeSymbol { Name: var name, TypeArguments: { Length: > 0 } generics }
-                => GetPossibleNamsepace(type) + $"{name}<{generics.Join(g => GetType(g), ", ")}>",
-            _
-                => GetTypeName(type, useInterfaceImplName)
-        };
-    }
-
-    private static string GetPossibleNamsepace(ITypeSymbol type)
-    {
-        return type.ContainingNamespace?.ToString() is { Length: > 0 } nmspc
-                    ? $"{nmspc}."
-                    : "";
-    }
-
-    private static string GetTypeName(ITypeSymbol type, bool useInterfaceImplName)
-    {
-        var isPrimitive = IsPrimitive((INamedTypeSymbol)type);
-        var typeName = isPrimitive ? type.ToDisplayString() : type.Name;
-
-        if (useInterfaceImplName && typeName[0] == 'I' && type.TypeKind == TypeKind.Interface)
-            typeName = typeName[1..];
-
-        if (type.NullableAnnotation == NullableAnnotation.Annotated)
-            typeName += "?";
-
-        return isPrimitive ? typeName : GetPossibleNamsepace(type) + typeName;
-    }
-
-    private static string GetImplementationClassName(ITypeSymbol type)
-    {
-        var isPrimitive = IsPrimitive((INamedTypeSymbol)type);
-        var typeName = isPrimitive ? type.ToDisplayString() : type.Name;
-
-        return (typeName[0] == 'I' && type.TypeKind == TypeKind.Interface) 
-            ? typeName[1..]
-            :typeName;
     }
 
     static bool IsPrimitive(INamedTypeSymbol? type)

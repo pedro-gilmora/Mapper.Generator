@@ -32,7 +32,6 @@ public partial class User
     public int Count { get; set; }
 
 }
-[Map<UserDto>]
 public interface IUser
 {
     string FullName { get; set; }
@@ -47,6 +46,7 @@ public interface IUser
     Role? MainRole { get; set; }
 }
 
+[Map<UserDto>]
 public partial class User : IUser
 {
     internal string FullName
@@ -156,7 +156,7 @@ Extras:
     public static void ParseCode()
     {
         GetRootAndModel(
-            "SourceCrafter.UnitTests.IUser user;",
+            "SourceCrafter.UnitTests.User user;",
             new[] { 
                 typeof(MapAttribute),
                 typeof(Attribute),

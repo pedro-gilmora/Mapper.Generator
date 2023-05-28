@@ -15,6 +15,12 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SourceCrafter.MappingGenera
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SourceCrafter.MappingGenerator.UnitTests", "SourceCrafter.MappingGenerator.UnitTests\SourceCrafter.MappingGenerator.UnitTests.csproj", "{D6E0DD9D-5DEA-431A-9F0C-267262388EA9}"
 EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "SourceCrafter.Extensions.String", "..\SourceCrafter.Extensions\SourceCrafter.Extensions.String\SourceCrafter.Extensions.String.shproj", "{DFE6F600-475A-4E96-8EA1-563BA7D9F7FD}"
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "SourceCrafter.Extensions.Collections", "..\SourceCrafter.Extensions\SourceCrafter.Extensions.Collections\SourceCrafter.Extensions.Collections.shproj", "{670BE6BB-DE79-4B66-B485-FD67C4440CC9}"
+EndProject
+Project("{D954291E-2A0B-460D-934E-DC6B0785DB48}") = "SourceCrafter.Extensions.Roslyn", "..\SourceCrafter.Extensions\SourceCrafter.Extensions.Roslyn\SourceCrafter.Extensions.Roslyn.shproj", "{A32BC307-F241-401B-9B59-5C0E8C367051}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -40,5 +46,13 @@ Global
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {17708AA6-E9D1-43A1-9722-36E1383A1834}
+	EndGlobalSection
+	GlobalSection(SharedMSBuildProjectFiles) = preSolution
+		..\SourceCrafter.Extensions\SourceCrafter.Extensions.Collections\SourceCrafter.Extensions.Collections.projitems*{670be6bb-de79-4b66-b485-fd67c4440cc9}*SharedItemsImports = 13
+		..\SourceCrafter.Extensions\SourceCrafter.Extensions.Collections\SourceCrafter.Extensions.Collections.projitems*{96ec0976-5e4f-4ecf-a63b-c5303677d250}*SharedItemsImports = 5
+		..\SourceCrafter.Extensions\SourceCrafter.Extensions.Roslyn\SourceCrafter.Extensions.Roslyn.projitems*{96ec0976-5e4f-4ecf-a63b-c5303677d250}*SharedItemsImports = 5
+		..\SourceCrafter.Extensions\SourceCrafter.Extensions.String\SourceCrafter.Extensions.String.projitems*{96ec0976-5e4f-4ecf-a63b-c5303677d250}*SharedItemsImports = 5
+		..\SourceCrafter.Extensions\SourceCrafter.Extensions.Roslyn\SourceCrafter.Extensions.Roslyn.projitems*{a32bc307-f241-401b-9b59-5c0e8c367051}*SharedItemsImports = 13
+		..\SourceCrafter.Extensions\SourceCrafter.Extensions.String\SourceCrafter.Extensions.String.projitems*{dfe6f600-475a-4e96-8ea1-563ba7d9f7fd}*SharedItemsImports = 13
 	EndGlobalSection
 EndGlobal
