@@ -29,10 +29,11 @@
 		<Title>Mapping Generator</Title>
 		<PackageProjectUrl>https://github.com/pedro-gilmora/Mapper.Generator</PackageProjectUrl>
 		<PackageIcon>logo.jpeg</PackageIcon>
+		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
 	</PropertyGroup>
 
 	<ItemGroup>
-	  <Compile Remove="Extensions.cs" />
+		<Compile Remove="Extensions.cs" />
 	</ItemGroup>
 
 	<!--<PropertyGroup Condition=" $(Configuration) == 'Test' ">
@@ -41,14 +42,16 @@
 	</PropertyGroup>
 
 	<ItemGroup Condition=" $(Configuration) == 'Test' ">
-		--><!-- Exclude the output of source generators from the compilation --><!--
+		-->
+	<!-- Exclude the output of source generators from the compilation -->
+	<!--
 		<Compile Remove="$(CompilerGeneratedFilesOutputPath)/**/*.cs" />
 	</ItemGroup>-->
-
+	
 	<ItemGroup>
 		<None Include="..\logo.jpeg">
-		  <Pack>True</Pack>
-		  <PackagePath>\</PackagePath>
+			<Pack>True</Pack>
+			<PackagePath>\</PackagePath>
 		</None>
 		<None Include="..\ReadMe.md">
 			<Pack>True</Pack>
@@ -59,22 +62,23 @@
 	<ItemGroup>
 		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.4.0" PrivateAssets="all" GeneratePathProperty="true" />
 		<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.3" PrivateAssets="all" GeneratePathProperty="true" />
-	</ItemGroup>
-
-	<ItemGroup>
 		<PackageReference Include="IndexRange" Version="1.0.2" PrivateAssets="all" GeneratePathProperty="true" />
-		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="7.0.0" GeneratePathProperty="true" />
+		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="7.0.0" PrivateAssets="all" GeneratePathProperty="true" />
+		<PackageReference Include="SourceCrafter.Extensions" Version="0.23.149.14" PrivateAssets="all" GeneratePathProperty="true" />
 		<PackageReference Include="System.Memory" Version="4.5.5" PrivateAssets="all" GeneratePathProperty="true" />
 	</ItemGroup>
 
-	<ItemGroup Condition=" '$(Configuration)' == 'Release' ">
-		<None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-	</ItemGroup>
+	<PropertyGroup>
+		<GetTargetPathDependsOn>$(GetTargetPathDependsOn);GetDependencyTargetPaths</GetTargetPathDependsOn>
+	</PropertyGroup>
 
-	<Import Project="..\..\SourceCrafter.Extensions\SourceCrafter.Extensions.Collections\SourceCrafter.Extensions.Collections.projitems" Label="Shared" />
-
-	<Import Project="..\..\SourceCrafter.Extensions\SourceCrafter.Extensions.String\SourceCrafter.Extensions.String.projitems" Label="Shared" />
-
-	<Import Project="..\..\SourceCrafter.Extensions\SourceCrafter.Extensions.Roslyn\SourceCrafter.Extensions.Roslyn.projitems" Label="Shared" />
+	<Target Name="GetDependencyTargetPaths">
+		<ItemGroup> 
+			<TargetPathWithTargetPlatformMoniker Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" IncludeRuntimeDependency="false" />
+      <!-- Pack both our DLL and the dependencies into a generated Nuget Package -->
+      <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+      <None Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+		</ItemGroup>
+	</Target>
 
 </Project>
