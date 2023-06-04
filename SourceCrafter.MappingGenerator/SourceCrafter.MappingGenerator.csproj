@@ -29,24 +29,14 @@
 		<Title>Mapping Generator</Title>
 		<PackageProjectUrl>https://github.com/pedro-gilmora/Mapper.Generator</PackageProjectUrl>
 		<PackageIcon>logo.jpeg</PackageIcon>
-		<CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+		<IsRoslynComponent>true</IsRoslynComponent>
+		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+		<Configurations>Debug;Release;Pack</Configurations>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<Compile Remove="Extensions.cs" />
 	</ItemGroup>
-
-	<!--<PropertyGroup Condition=" $(Configuration) == 'Test' ">
-		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
-		<CompilerGeneratedFilesOutputPath>Generated</CompilerGeneratedFilesOutputPath>
-	</PropertyGroup>
-
-	<ItemGroup Condition=" $(Configuration) == 'Test' ">
-		-->
-	<!-- Exclude the output of source generators from the compilation -->
-	<!--
-		<Compile Remove="$(CompilerGeneratedFilesOutputPath)/**/*.cs" />
-	</ItemGroup>-->
 	
 	<ItemGroup>
 		<None Include="..\logo.jpeg">
@@ -64,22 +54,32 @@
 		<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.3" PrivateAssets="all" GeneratePathProperty="true" />
 		<PackageReference Include="IndexRange" Version="1.0.2" PrivateAssets="all" GeneratePathProperty="true" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="7.0.0" PrivateAssets="all" GeneratePathProperty="true" />
-		<PackageReference Include="SourceCrafter.Extensions" Version="0.23.149.14" PrivateAssets="all" GeneratePathProperty="true" />
 		<PackageReference Include="System.Memory" Version="4.5.5" PrivateAssets="all" GeneratePathProperty="true" />
 	</ItemGroup>
 
-	<PropertyGroup>
+	<ItemGroup>
+		<PackageReference Include="SourceCrafter.Extensions" Version="0.23.149.14" GeneratePathProperty="true">
+			<ExcludeAssets Condition=" '$(Configuration)' == 'Pack'">analyzers</ExcludeAssets>
+			<PrivateAssets Condition=" '$(Configuration)' != 'Pack'">none</PrivateAssets>
+		</PackageReference>
+	</ItemGroup>
+
+
+	<ItemGroup Condition=" '$(Configuration)' == 'Pack'">
+		<None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+		<None Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
+	</ItemGroup>
+
+
+	<PropertyGroup Condition=" '$(Configuration)' != 'Pack' ">
 		<GetTargetPathDependsOn>$(GetTargetPathDependsOn);GetDependencyTargetPaths</GetTargetPathDependsOn>
 	</PropertyGroup>
 
-	<ItemGroup>
-		<None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-	</ItemGroup>
-
-	<Target Name="GetDependencyTargetPaths">
+	<Target Name="GetDependencyTargetPaths" Condition=" '$(Configuration)' != 'Pack' ">
 		<ItemGroup>
-			<TargetPathWithTargetPlatformMoniker Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" IncludeRuntimeDependency="false" />
+			<TargetPathWithTargetPlatformMoniker Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" IncludeRuntimeDependency="true" />
 		</ItemGroup>
 	</Target>
+
 
 </Project>
