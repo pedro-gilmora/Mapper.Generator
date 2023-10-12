@@ -3,7 +3,7 @@
 public enum Ignore
 {
     None,
-    OnSource,
-    OnTarget,
+    Source,
+    Target,
     Both
 }
