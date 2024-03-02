@@ -1,17 +1,34 @@
-﻿namespace SourceCrafter.Mapping;
+﻿using System.IO.MemoryMappedFiles;
 
-internal sealed class Indent
+namespace SourceCrafter.Bindings;
+
+internal sealed class Indent(char space = ' ', int count = 4)
 {
-    private string spaces = "    ";
+    private string spaces = new(space, count);
+    private readonly char space = space;
+    private readonly int factor = count;
+
     public static Indent operator ++(Indent from)
     {
         from.spaces += "    ";
         return from;
     }
+    public static Indent operator +(Indent from, int i)
+    {
+        from.spaces += new string(from.space, from.factor * i);
+        return from;
+    }
     public static Indent operator --(Indent from)
     {
-        if (from.spaces.Length > 1)
-            from.spaces = from.spaces[..^4];
+        if (from.spaces.Length > from.factor)
+            from.spaces = from.spaces[..^from.factor];
+        return from;
+    }
+    public static Indent operator -(Indent from, int i)
+    {
+        i *= from.factor;
+        if (from.spaces.Length > i)
+            from.spaces = from.spaces[..^i];
         return from;
     }
 

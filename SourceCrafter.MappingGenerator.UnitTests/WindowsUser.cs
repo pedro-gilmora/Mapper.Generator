@@ -1,13 +1,12 @@
-﻿using SourceCrafter.Mapping.Attributes;
+﻿using SourceCrafter.Bindings.Attributes;
+using SourceCrafter.Bindings.Constants;
 
 namespace SourceCrafter.UnitTests;
 
 public partial class WindowsUser
 {
-    [Map(nameof(User.FullName))]
+    [Bind(nameof(User.FullName), ApplyOn.Source)]
+    [Bind(nameof(UserDto.FullName))]
     public string Name { get; set; } = null!;
     public bool IsAuthenticated { get; set; }
 }
-
-public class TestA { public int Age { get; set; } }
-public class TestB { public int Age{get;set;} }

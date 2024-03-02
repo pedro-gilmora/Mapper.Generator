@@ -1,10 +1,11 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net7.0</TargetFramework>
+		<TargetFramework>net8.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
-		<Configurations>Debug;Release;Test;Pack</Configurations>
+		<LangVersion>latest</LangVersion>
+		<Configurations>Debug;Release;Test;Pack;Debug SG</Configurations>
 	</PropertyGroup>
 	
 	<ItemGroup>
@@ -23,7 +24,13 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\SourceCrafter.MappingGenerator\SourceCrafter.MappingGenerator.csproj" OutputItemType="Analyzer" />
+		<ProjectReference Include="..\SourceCrafter.MappingGenerator\SourceCrafter.Bindings.csproj" OutputItemType="Analyzer" />
 	</ItemGroup>
+
+	<!--<PropertyGroup Condition=" $(Configuation) == 'Debug' Or $(Configuation) == 'Debug SG' ">
+		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
+		<CompilerGeneratedFilesOutputPath>GeneratedFiles</CompilerGeneratedFilesOutputPath>
+	</PropertyGroup>-->
+
 
 </Project>

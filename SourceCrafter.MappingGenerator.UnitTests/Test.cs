@@ -3,69 +3,78 @@ using Xunit;
 using System.Text;
 
 // Analyzer 
-using SourceCrafter.Mapping.Attributes;
+using SourceCrafter.Bindings;
 
 //Testing purpose
-using System.Security.Principal;
 using FluentAssertions;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using SourceCrafter.Bindings.Attributes;
+using SourceCrafter.Bindings.Helpers;
+using SourceCrafter.Bindings.Constants;
+using SourceCrafter.MappingGenerator;
+using SourceCrafter.Mappings;
 
 namespace SourceCrafter.UnitTests;
 
 public class TestImplicitMapper
 {
 
-    //    [Fact]
-    //    public static void ParseAssembly()
-    //    {
-    //        GetRootAndModel(@"
-    //[assembly: SourceCrafter.Mapping.Attributes.Map<
-    //    SourceCrafter.UnitTests.UserDto,
-    //    SourceCrafter.UnitTests.WindowsUser>]
-    //[assembly:
-    //    SourceCrafter.Mapping.Attributes.Map<
-    //        SourceCrafter.UnitTests.User,
-    //        SourceCrafter.UnitTests.UserDto>]
-    //[assembly:
-    //    SourceCrafter.Mapping.Attributes.Map<
-    //        SourceCrafter.UnitTests.User,
-    //        SourceCrafter.UnitTests.UserMiniDto>]",
-    //            new[]{
-    //                typeof(Attribute),
-    //                typeof(User),
-    //                typeof(IgnoreAttribute),
-    //                typeof(MapAttribute),
-    //                typeof(MapAttribute<>),
-    //                typeof(MapAttribute<,>)
-    //            },
-    //            out var compilation,
-    //            out var root,
-    //            out var model
-    //        );
+    [Fact]
+    public static void GetSomeType()
+    {
+        GetRootAndModel(@"",
+            out var compilation,
+            out _,
+            out _
+        );
 
-    ////        MappingGenerator.MappersFromAssemblyAttributes(
-    ////            compilation, 
-    ////            compilation.Assembly, 
-    ////            out var mappersCount, 
-    ////            out var code
-    ////#if DEBUG
-    ////            , out var extra
-    ////#endif
-    ////        );
+        compilation.GetTypeByMetadataName("System.Span`1");
+    }
 
-    ////#if DEBUG
-    ////        code.Append($@"
-    ////}}
-    /////*
-    ////Extras:
-    ////-------{extra}
-    ////*/
-    ////");
-    ////#endif
+    [Fact]
+    public static void ParseAssembly()
+    {
+        GetRootAndModel(@"using SourceCrafter.Binding.Attributes;
+using SourceCrafter.UnitTests;
 
-    //    }
+[assembly:
+    Bind<WindowsUser, UserDto>,
+    Bind<WindowsUser, User>,
+    Bind<User, UserDto>]",
+            out var compilation,
+            out var root,
+            out var model,
+            typeof(User), 
+            typeof(BindAttribute<,>)
+        );
+
+
+        StringBuilder code = new(@"namespace SourceCrafter.Mappings;
+
+public static partial class Mappers
+{");
+
+        var assemblyAtributes = compilation.Assembly
+            .GetAttributes()
+            .Where(c => c.AttributeClass?.ToGlobalizedNonGenericNamespace() == "global::SourceCrafter.Binding.Attributes.BindAttribute")
+            .Select(c => new MapInfo(c.AttributeClass!.TypeArguments[0], c.AttributeClass!.TypeArguments[1], MappingKind.All, ApplyOn.None))
+            .ToImmutableArray();
+
+        new Generator()
+            .BuildCode(
+                code,
+                compilation,
+                ImmutableArray<MapInfo>.Empty,
+                assemblyAtributes);
+
+        code.Append("\n}");
+
+        //new User().ToUserDto().Asignees!.ElementAt(0).
+
+        //Trace.WriteLine(code.ToString());
+    }
 
 
     //    [Fact]
@@ -127,37 +136,39 @@ public class TestImplicitMapper
     //        //winId.IsAuthenticated.Should().BeTrue();
     //    }
     //#endif
-    //[Fact]
-    //public void TestClass()
-    //{
-    //    DateTime today = DateTime.Today;
-    //    (int, string)[] roles = { (0, "admin"), (1, "publisher") };
+    [Fact]
+    public void TestClass()
+    {
+        DateTime today = DateTime.Today;
+        (int, string)[] roles = [(0, "admin"), (1, "publisher")];
 
-    //    var userDto = new UserDto
-    //    {
-    //        FullName = "Gil Mora, Pedro",
-    //        Age = 32,
-    //        DateOfBirth = today,
-    //        Roles = roles,
-    //        Count = 5,
-    //        TotalAmount = 45.6m,
-    //        MainRole = roles[0]
-    //    };
-    //    User fromDto = (User)userDto;
-    //    fromDto.Age.Should().Be(32);
-    //    fromDto.FirstName.Should().Be("Pedro");
-    //    fromDto.LastName.Should().Be("Gil Mora");
-    //    fromDto.DateOfBirth.Should().Be(today);
-    //    fromDto.Roles.Select(r => ((int, string))r).Should().BeEquivalentTo(roles);
+        var userDto = new UserDto
+        {
+            FullName = "Gil Mora, Pedro",
+            Age = 32,
+            DateOfBirth = today,
+            Count = 5,
+            TotalAmount = 45.6m,
+            MainRole = roles[0]
+        };
 
-    //    UserDto fromModel = (UserDto)fromDto;
-    //    fromModel.Age.Should().Be(32);
-    //    fromModel.FullName.Should().Be("Gil Mora, Pedro");
-    //    fromModel.DateOfBirth.Should().Be(today);
-    //    fromModel.Roles.Should().BeEquivalentTo(roles);
-    //}
+        var fromDto = userDto.ToUser();
+        fromDto.Age.Should().Be(32);
+        fromDto.FirstName.Should().Be("Pedro");
+        fromDto.LastName.Should().Be("Gil Mora");
+        fromDto.DateOfBirth.Should().Be(today);
+        fromDto.Balance.Should().Be(45.6);
+        fromDto.Count.Should().Be(5);
 
-    private static void GetRootAndModel(string code, Type[] assemblies, out CSharpCompilation compilation, out SyntaxNode root, out SemanticModel model)
+        var fromModel = fromDto.ToUserDto();
+        fromModel.Age.Should().Be(32);
+        fromModel.FullName.Should().Be("Gil Mora, Pedro");
+        fromModel.DateOfBirth.Should().Be(today);
+        fromModel.TotalAmount.Should().Be(45.6m);
+        fromModel.Count.Should().Be(5);
+    }
+
+    private static void GetRootAndModel(string code, out CSharpCompilation compilation, out SyntaxNode root, out SemanticModel model, params Type[] assemblies)
     {
         SyntaxTree tree = CSharpSyntaxTree.ParseText(code);
 
@@ -169,6 +180,7 @@ public class TestImplicitMapper
                 new[] { tree },
                 assemblies
                     .Select(a => a.Assembly.Location)
+                    .Append(typeof(object).Assembly.Location)
                     .Distinct()
                     .Select(r => MetadataReference.CreateFromFile(r))
                     .ToImmutableArray());

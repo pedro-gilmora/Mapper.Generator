@@ -1,676 +1,1076 @@
-﻿using System.Text;
-using Microsoft.CodeAnalysis;
-using System.Collections.Generic;
-using SourceCrafter.Mapping.Constants;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using System;
-using System.Collections;
-using System.Linq;
-using System.Collections.Immutable;
+﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.CSharp;
-using System.Linq.Expressions;
-using System.Data.SqlTypes;
-using System.Diagnostics.CodeAnalysis;
+using Microsoft.CodeAnalysis;
+using SourceCrafter.Bindings.Constants;
+using SourceCrafter.Bindings;
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text;
+using SourceCrafter.Bindings.Helpers;
 
-namespace SourceCrafter.Mapping;
+namespace SourceCrafter.MappingGenerator;
 
-internal enum OutputType { Return, IterableCollector }
+delegate string BuildMember(
+    Func<string, string> createType,
+    TypeData targetType,
+    Member targetMember,
+    TypeData sourceType,
+    Member sourceMember);
 
-internal delegate void MappingBuilder(Indent indent, int rootId);
-internal delegate StringBuilder FormattedAppend(
-    [StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format,
-    params object?[] parameters
-);
-
-internal sealed class MappingSet
+internal sealed partial class MappingSet(Compilation compilation, StringBuilder code)
 {
+    short targetScopeId, sourceScopeId;
 
-    private MappingDescriptor[] items = new MappingDescriptor[4];
-    private int count = 0;
-    private readonly StringBuilder code = new(@"namespace SourceCrafter.Mappings;
+    readonly TypeSet typeSet = new(compilation);
 
-public static partial class Mappers
-{");
+    readonly bool canOptimize = compilation.GetTypeByMetadataName("System.Span`1") is not null,
+        canUseUnsafeAccessor = compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.UnsafeAccessorAttribute") is not null;
 
-    internal static INamedTypeSymbol objectTypeSymbol = null!;
-    internal static readonly Func<ISymbol?, ISymbol?, bool> AreSymbolsEquals = SymbolEqualityComparer.Default.Equals;
-    internal Func<string, StringBuilder> Append;
-    internal FormattedAppend AppendFormatted;
+    private const string
+        TUPLE_START = "(",
+        TUPLE_END = " )",
+        TYPE_START = @"new {0}
+        {{",
+        TYPE_END = @"
+        }";
+    static readonly EqualityComparer<uint> _uintComparer = EqualityComparer<uint>.Default;
 
-    internal MappingSet()
+    internal static readonly SymbolEqualityComparer
+        _comparer = SymbolEqualityComparer.IncludeNullability;
+
+    internal Action AddMapper(ITypeSymbol targetType, ITypeSymbol sourceType, ApplyOn ignore, MappingKind mapKind)
     {
-        Append = code.Append;
-        AppendFormatted = code.AppendFormat;
+
+        int targetId = GetId(targetType),
+            sourceId = GetId(sourceType);
+
+        Member
+            target = new(++targetScopeId, "to", targetId, targetType.IsNullable()),
+            source = new(--sourceScopeId, "source", sourceId, sourceType.IsNullable());
+
+        var typeMappingInfo = GetOrAddMapper(
+            targetType.AsNonNullable(),
+            sourceType.AsNonNullable(),
+            targetId,
+            sourceId);
+
+        typeMappingInfo.MappingsKind = mapKind;
+
+        typeMappingInfo = CreateType(
+            typeMappingInfo,
+            target,
+            source,
+            "+" + typeMappingInfo.TargetType.Id + "+",
+            "+" + typeMappingInfo.SourceType.Id + "+");
+
+        return typeMappingInfo.BuildMethods;
     }
 
-    public bool TryGetOrAdd(
-        Compilation compilation,
-        ITypeSymbol targetType,
-        ITypeSymbol sourceType,
-        string from,
-        string to,
-        out MappingDescriptor item,
-        bool returnFound = true
+    TypeMappingInfo CreateType
+    (
+        TypeMappingInfo map,
+        Member target,
+        Member source,
+        string targetMappingPath,
+        string sourceMappingPath
     )
     {
-        item = new(targetType, sourceType);
-        if (count == 0)
+        if (map.CanMap is not null)
         {
-            items[0] = item;
-            count++;
+            if(!map.TargetType.IsRecursive && !map.TargetType.IsStruct && !map.TargetType.IsPrimitive)
+                map.TargetType.IsRecursive = IsRecursive(targetMappingPath, map.TargetType.Id);
 
-            return FindMappableMembers(compilation, item, from, to);
+            if(!map.SourceType.IsRecursive && !map.SourceType.IsStruct && !map.SourceType.IsPrimitive)
+                map.SourceType.IsRecursive = map.AreSameType ? map.TargetType.IsRecursive : IsRecursive(sourceMappingPath, map.SourceType.Id);
+           
+            return map;
         }
 
-        int
-            low = 0,
-            high = count - 1;
+        map.EnsureDirection(ref target, ref source);
 
+        GetNullability(ref target, map.TargetType._typeSymbol, ref source, map.SourceType._typeSymbol);
 
-        while (low <= high)
+        if (IsCollection(ref map, out var targetCollInfo, out var sourceCollInfo, out var ltrInfo, out var rtlInfo))
         {
-            int mid = low + (high - low) / 2;
+            int targetItemId = GetId(targetCollInfo.TypeSymbol),
+                sourceItemId = GetId(sourceCollInfo.TypeSymbol);
 
-            switch (items[mid].CompareTo(item))
+            Member
+                targetItem = new(target.Id, target.Name + "Item", targetItemId, targetCollInfo.IsItemNullable),
+                sourceItem = new(source.Id, source.Name + "Item", sourceItemId, sourceCollInfo.IsItemNullable);
+
+            var itemMap = GetOrAddMapper(
+                targetCollInfo.TypeSymbol.AsNonNullable(),
+                sourceCollInfo.TypeSymbol.AsNonNullable(),
+                targetItemId,
+                sourceItemId);
+
+            map.ItemMapId = itemMap.Id;
+
+            if (itemMap.CanMap is not true)
             {
-                case 0:
-                    if (!returnFound)
-                        return false;
+                map.CanMap = map.IsCollection = false;
+                return map;
+            }
 
-                    return (item = items[mid]).IsMappable;
-                case < 0:
-                    low = mid + 1;
-                    continue;
-                default:
-                    high = mid - 1;
-                    continue;
+            if (itemMap.CanMap != false)
+            {
+                GetNullability(ref targetItem, targetCollInfo.TypeSymbol, ref sourceItem, sourceCollInfo.TypeSymbol);
+
+                itemMap = CreateType(
+                    itemMap,
+                    targetItem,
+                    sourceItem,
+                    targetMappingPath + itemMap.TargetType.Id + "+",
+                    sourceMappingPath + itemMap.SourceType.Id + "+");
+
+                map.TargetType.IsRecursive |= itemMap.TargetType.IsRecursive;
+                map.SourceType.IsRecursive |= itemMap.SourceType.IsRecursive;
+
+                if (targetItem.IsNullable)
+                    itemMap.AddTTSTryGet = true;
+
+                if (sourceItem.IsNullable)
+                    itemMap.AddSTTTryGet = true;
+
+                targetCollInfo.DataType = map.TargetType;
+                sourceCollInfo.DataType = map.SourceType;
+                targetCollInfo.ItemDataType = itemMap.TargetType;
+                sourceCollInfo.ItemDataType = itemMap.SourceType;
+
+                if (true == (map.CanMap =
+                    (!itemMap.TargetType.IsInterface && BuildCollection(
+                        target,
+                        sourceItem,
+                        targetItem,
+                        map.TargetType.IsRecursive,
+                        sourceCollInfo,
+                        targetCollInfo,
+                        rtlInfo,
+                        itemMap.BuildToTargetValue,
+                        ref map.BuildToTargetValue,
+                        ref map.BuildToTargetMethod))
+                    |
+                    (!itemMap.TargetType.IsInterface && BuildCollection(
+                        source,
+                        targetItem,
+                        sourceItem,
+                        map.SourceType.IsRecursive,
+                        targetCollInfo,
+                        sourceCollInfo,
+                        ltrInfo,
+                        itemMap.BuildToSourceValue,
+                        ref map.BuildToSourceValue,
+                        ref map.BuildToSourceMethod))))
+                {
+                    map.AuxiliarMappings += itemMap.BuildMethods;
+                }
+            }
+            else
+            {
+                map.CanMap = false;
             }
         }
-
-        if (count == items.Length)
-            Array.Resize(ref items, items.Length * 2);
-
-        if (low < count)
-            Array.Copy(items, low, items, low + 1, count - low);
-
-        items[low] = item;
-        count++;
-
-        return FindMappableMembers(compilation, item, from, to);
-    }
-    public bool Contains(
-        ITypeSymbol targetType,
-        ITypeSymbol sourceType
-    )
-    {
-        MappingDescriptor item = new(targetType, sourceType);
-        //if (count == 0)
-        //{
-        //    items[0] = item;
-        //    count++;
-
-        //    return FindMappableMembers(compilation, ignore, item); ;
-        //}
-
-        int
-            low = 0,
-            high = count - 1;
-
-
-        while (low <= high)
+        else
         {
-            int mid = low + (high - low) / 2;
-
-            switch (items[mid].CompareTo(item))
+            var canMap = false;
+            if (map.TargetType.HasConversionTo(map.SourceType, out var exists, out var isExplicit)
+                | map.SourceType.HasConversionTo(map.TargetType, out var reverseExists, out var isReverseExplicit))
             {
-                case 0:
+                if (exists)
+                {
+                    var scalar = isExplicit
+                        ? $@"({map.TargetType.FullName}){{0}}{source.Bang}"
+                        : $@"{{0}}{source.Bang}";
+
+                    map.BuildToTargetValue = value => scalar.Replace("{0}", value);
+
+                    canMap = map.HasToTargetScalarConversion = true;
+                }
+
+                if (reverseExists)
+                {
+                    var scalar = isExplicit
+                        ? $@"({map.SourceType.FullName}){{0}}{target.Bang}"
+                        : $@"{{0}}{target.Bang}";
+
+                    map.BuildToSourceValue = value => scalar.Replace("{0}", value);
+
+                    canMap = map.HasToTargetScalarConversion = true;
+                }
+
+                map.JustFill = canMap;
+            }
+
+            if (map.TargetType.IsPrimitive || map.SourceType.IsPrimitive)
+            {
+                map.CanMap = canMap;
+                goto exit;
+            }
+
+            switch ((map.TargetType.IsTupleType, map.SourceType.IsTupleType))
+            {
+                case (true, true):
+                    CreateTypeBuilders(map, targetMappingPath, target, source, map.TargetType.TupleElements, map.SourceType.TupleElements);
+                    break;
+                case (true, false):
+                    CreateTypeBuilders(map, targetMappingPath, target, source, map.TargetType.TupleElements, map.SourceType.Members);
+                    break;
+                case (false, true):
+                    CreateTypeBuilders(map, targetMappingPath, target, source, map.TargetType.Members, map.SourceType.TupleElements);
+                    break;
+                default:
+                    CreateTypeBuilders(map, targetMappingPath, target, source, map.TargetType.Members, map.SourceType.Members);
+                    break;
+            }
+        }
+    exit:
+        return map;
+    }
+
+    internal bool IsRecursive(string s, int id)
+    {
+        string n = $"+{id}+", ss;
+        int t = 1;
+
+        for (int nL = n.Length, start = Math.Abs(s.Length - n.Length), end = s.Length; start > -1 && end - start >= nL;)
+        {
+            if ((ss = s[start..end]) == n && t-- == 0)
+            {
                     return true;
-                case < 0:
-                    low = mid + 1;
-                    continue;
-                default:
-                    high = mid - 1;
-                    continue;
+            }
+            else if (ss[0] == '+' && ss[^1] == '+')
+            {
+                end = start + 1;
+                start = end - nL;
+            }
+            else
+            {
+                end--;
+                start--;
             }
         }
-
-        //if (count == items.Length) 
-        //    Array.Resize(ref items, items.Length * 2);
-
-        //if (low < count) 
-        //    Array.Copy(items, low, items, low + 1, count - low);
-
-        //items[low] = item;        
-        //count++;
-
         return false;
     }
 
-
-    internal void BuildType(
-        CodeGenerator codeGen,
-        Indent indent,
-        int rootId,
-        string typeB,
-        string from = "from",
-        string to = "to"
-    )
+    private bool BuildCollection(
+        Member target,
+        Member sourceItem,
+        Member targetItem,
+        bool isRecursive,
+        CollectionInfo sourceCollInfo,
+        CollectionInfo targetCollInfo,
+        CollectionMapping ltrInfo,
+        Func<string, string> itemValueCreator,
+        ref Func<string, string> valueCreator,
+        ref Action? methodCreator)
     {
-        if (codeGen.PreInitialize is { } preInit)
-            preInit(indent, rootId);
+        string
+            targetFullTypeName = targetCollInfo.DataType.NotNullFullName,
+            sourceFullTypeName = sourceCollInfo.DataType.NotNullFullName,
+            targetItemFullTypeName = targetCollInfo.ItemDataType.FullName,
+            countProp = sourceCollInfo.CountProp,
+            methodName = ltrInfo.ToTargetMethodName;
 
-        AppendFormatted(@"
-{0}    var {1} = new {2}
-{0}    {{", indent, to, typeB);
-
-        codeGen.Comma = null;
-        ++indent;
-
-        codeGen.AddMember(indent, rootId);
-
-        --indent;
-
-        AppendFormatted(@"
-{0}    }};", indent);
-    }
-
-//    private void AddEnumerableMapping(
-//        CodeGenerator parentCodeGen,
-//        Compilation compilation,
-//        Indent indent,
-//        string inExpression,
-//        bool inNullable,
-//        string outExpression,
-//        string outTypeName,
-//        IterInfo _in,
-//        IterInfo _out,
-//        int rootId)
-//    {
-//        bool hasMapping;
-//        CodeGenerator codeGen;
-
-//        string
-//            inCollVarName = inExpression.Replace(".", ""),
-//            outCollVarName = outExpression.Replace(".", ""),
-//            inItemVarName = $"{inCollVarName}Item",
-//            outItemVarName = $"{outCollVarName}Item";
-
-//        switch ((_in.IterableType, _out.IterableType))
-//        {
-//            case (not IterableType.Enumerable, not IterableType.Collection):
-//                #region Countable to array
-
-//                string
-//                    inCollItemVarName = $"{inCollVarName}[{inCollVarName}Ix]",
-//                    outColltItemVarName = $"{outCollVarName}[{inCollVarName}Ix]";
-
-//                if (!NeedsConverter(
-//                        compilation,
-//                        _in.Type,
-//                        _out.Type,
-//                        _out.ItemFullTypeName,
-//                        inItemVarName,
-//                        ref inCollItemVarName,
-//                        out hasMapping,
-//                        out codeGen)
-//                    || !(hasMapping
-//                        && (inNullable
-//                            ? codeGen.CanCreateNullableMapper(rootId)
-//                            : codeGen.CanCreateMapper(rootId))))
-
-//                    return;
-//                parentCodeGen.PreInitialize += (indent, from, to, rootId) =>
-//                {
-//                    AppendFormatted(@"
-//{0}    #region Translating from {1} to {2}
-
-//{0}    var {3} = {1};
-//{0}    var {4} = new {5}[{3}.{6}];
-
-//{0}    for(int {3}Ix = 0, {3}Len = {3}.{6}; {3}Ix < {3}Len; {3}Ix++) 
-//{0}    {{",
-//                        indent,
-//                        inExpression,
-//                        outExpression,
-//                        inCollVarName,
-//                        outCollVarName,
-//                        _out.ItemFullTypeName,
-//                        _in.CountProperty);
-//                };
-//                indent++;
-
-//                if (hasMapping)
-//                {
-//                    if (inNullable)
-//                    {
-//                        parentCodeGen.PreInitialize += (indent, from, to, rootId) =>
-//                        {
-//                            AppendFormatted(@"
-//{0}    if ({1} is not {{}} {2}) 
-//{0}    {{
-//{0}        {3} = default;
-//{0}        continue;
-//{0}    }}
-//",
-//                            indent,
-//                            inCollItemVarName,
-//                            inItemVarName,
-//                            outColltItemVarName);
-//                        };
-//                    }
-//                    else
-//                    {
-//                        parentCodeGen.PreInitialize += (indent, from, to, rootId) =>
-//                        {
-//                            AppendFormatted(@"
-//{0}    var {1} = {2};",
-//                            indent,
-//                            inItemVarName,
-//                            inCollItemVarName);
-//                        };
-//                    }
-
-//                    BuildType(codeGen, indent, rootId, _out.ItemFullTypeName.TrimEnd('?'), inItemVarName, outItemVarName);
-//                }
-//                else
-//                {
-//                    outItemVarName = inCollItemVarName;
-//                }
-
-//                indent--;
-
-//                AppendFormatted(@"
-//{0}        {1} = {2};
-//{0}    }}
-
-//{0}    {3} = {4};
-//{0}    #endregion
-//", indent, outColltItemVarName, outItemVarName, outExpression, outCollVarName);
-
-//                #endregion
-//                break;
-//            case (_, IterableType.Collection):
-//                #region Any to collection
-
-//                if (!NeedsConverter(
-//                        compilation,
-//                        _in.Type,
-//                        _out.Type,
-//                        _out.ItemFullTypeName,
-//                        inItemVarName,
-//                        ref outItemVarName,
-//                        out hasMapping,
-//                        out codeGen)
-//                    || !(hasMapping
-//                        && (inNullable
-//                            ? codeGen.CanCreateNullableMapper(rootId)
-//                            : codeGen.CanCreateMapper(rootId))))
-
-//                    return;
-
-//                AppendFormatted(@"
-//{0}    #region Translating from {1} to {2}
-
-//{0}    var {3} = {1};
-//{0}    var {4} = new {5}();
-
-//{0}    foreach (var {6} in {3})
-//{0}    {{",
-//                indent,
-//                    inExpression,
-//                    outExpression,
-//                    inCollVarName,
-//                    outCollVarName,
-//                    outTypeName.TrimEnd('?'),
-//                    inItemVarName);
-
-//                indent++;
-
-//                if (hasMapping)
-//                {
-//                    if (inNullable)
-//                    {
-//                        AppendFormatted(@"
-//{0}    if ({1} is null) 
-//{0}    {{
-//{0}        {2}
-//{0}        continue;
-//{0}    }}
-//",
-//                            indent,
-//                            inItemVarName,
-//                            string.Format(_out.AddMethod, outCollVarName, "default"));
-//                    }
-
-//                    BuildType(codeGen, indent, rootId, _out.ItemFullTypeName.TrimEnd('?'), inItemVarName, outItemVarName);
-//                }
-
-//                indent--;
-
-//                AppendFormatted(@"
-//{0}        {1}
-//{0}    }}
-
-//{0}    {2} = {3};
-
-//{0}    #endregion
-//",
-//                    indent,
-//                    string.Format(_out.AddMethod, outCollVarName, outItemVarName),
-//                    outExpression,
-//                    outCollVarName);
-//                #endregion
-//                break;
-//            case (_, IterableType.Enumerable):
-//                #region Any to collection
-
-//                if (!NeedsConverter(
-//                        compilation,
-//                        _in.Type,
-//                        _out.Type,
-//                        _out.ItemFullTypeName,
-//                        inItemVarName,
-//                        ref outItemVarName,
-//                        out hasMapping,
-//                        out codeGen)
-//                    || (hasMapping
-//                        && (inNullable
-//                            ? !codeGen.CanCreateNullableMapper(rootId)
-//                            : !codeGen.CanCreateMapper(rootId))))
-
-//                    return;
-
-//                AppendFormatted(@"
-//{0}    #region Translating from {1} to {2}
-
-//{0}    var {3} = {1};
-//{0}    var {4} = new global::System.Collections.Generic.List<{5}>();
-
-//{0}    foreach (var {6} in {3})
-//{0}    {{", indent, inExpression, outExpression, inCollVarName, outCollVarName, _out.ItemFullTypeName, inItemVarName);
-
-//                indent++;
-
-//                if (hasMapping)
-//                {
-//                    if (inNullable)
-//                    {
-//                        AppendFormatted(@"
-//{0}    if ({1} is null) 
-//{0}    {{
-//{0}        {2}.Add(default);
-//{0}        continue;
-//{0}    }}",
-//                            indent,
-//                            inItemVarName,
-//                            outCollVarName);
-//                    }
-
-//                    BuildType(codeGen, indent, rootId, _out.ItemFullTypeName.TrimEnd('?'), inItemVarName, outItemVarName);
-//                }
-
-//                indent--;
-
-//                AppendFormatted(@"
-//{0}        {1}.Add({2});
-//{0}    }}
-
-//{0}    {3} = {4};
-
-//{0}    #endregion
-//",
-//                    indent,
-//                    outCollVarName,
-//                    outItemVarName,
-//                    outExpression,
-//                    outCollVarName);
-//                #endregion
-//                break;
-//            case (_, IterableType.Array or IterableType.Enumerable):
-//                #region Any to array
-
-//                inCollItemVarName = $"{inCollVarName}[{inCollVarName}Ix]";
-//                outColltItemVarName = $"{outCollVarName}[{inCollVarName}Ix]";
-
-//                if (!NeedsConverter(
-//                    compilation,
-//                    _in.Type,
-//                    _out.Type,
-//                    _out.ItemFullTypeName,
-//                    inItemVarName,
-//                    ref outItemVarName,
-//                    out hasMapping,
-//                    out codeGen)
-//                    || (hasMapping
-//                        && (inNullable
-//                            ? !codeGen.CanCreateNullableMapper(rootId)
-//                            : !codeGen.CanCreateMapper(rootId)))
-//                )
-//                    return;
-
-//                AppendFormatted(@"
-//{0}    #region Translating from {1} to {2}
-
-//{0}    var {3} = {1};
-//{0}    var {4} = new {5}[4];
-//{0}    var {4}Count = 0;
-//{0}    var {3}Ix = 0;
-
-//{0}    foreach (var {6} in {3})
-//{0}    {{
-//{0}        if ({4}Count == {4}.Length) 
-//{0}            global::System.Array.Resize(ref {4}, {4}.Length * 2);
-//",
-//                indent,
-//                inExpression,
-//                outExpression,
-//                inCollVarName,
-//                outCollVarName,
-//                _out.ItemFullTypeName,
-//                inItemVarName);
-
-//                indent++;
-
-//                if (hasMapping)
-//                {
-//                    if (inNullable)
-//                    {
-//                        AppendFormatted(@"
-//{0}    if ({1} is not {{}} {2}) 
-//{0}    {{
-//{0}        {3} = default;
-//{0}        continue;
-//{0}    }}
-//",
-//                            indent,
-//                            inCollItemVarName,
-//                            inItemVarName,
-//                            outColltItemVarName);
-//                    }
-//                    else
-//                    {
-//                        AppendFormatted(@"
-//{0}    var {1} = {2};",
-//                            indent,
-//                            inItemVarName,
-//                            inCollItemVarName);
-//                    }
-
-//                    BuildType(codeGen, indent, rootId, _out.ItemFullTypeName.TrimEnd('?'), inItemVarName, outItemVarName);
-//                }
-//                else
-//                {
-//                    outItemVarName = inCollItemVarName;
-//                }
-
-//                AppendFormatted(@"
-//{0}    {1}[{2}Ix++] = {3};", indent, outCollVarName, inCollVarName, outItemVarName);
-
-//                indent--;
-
-//                AppendFormatted(@"
-//{0}    }}
-
-//{0}    if ({2}Count < {2}.Length) 
-//{0}        global::System.Array.Resize(ref {2}, {2}Count);
-
-//{0}    {1} = {2};
-
-//{0}    #endregion
-//", indent, outExpression, outCollVarName);
-//                #endregion
-//                break;
-//        }
-
-
-//    }
-
-    bool NeedsConverter(
-        Compilation compilation,
-        ITypeSymbol _in,
-        ITypeSymbol _out,
-        string outItemFullTypeName,
-        string inItemVarName,
-        ref string outItemVarName,
-        string from,
-        string to,
-        out bool hasMapping,
-        out CodeGenerator map)
-    {
-        hasMapping = false;
-        map = null!;
-
-        switch (compilation.ClassifyConversion(_in, _out))
+        bool IsRecursive(out int maxDepth)
         {
-            case { IsExplicit: true, IsReference: var isRef }:
+            maxDepth = target.MaxDepth;
 
-                if (isRef)
-                    outItemVarName = $"__FROM__.{inItemVarName} as {outItemFullTypeName.TrimEnd('?')}";
-                else
-                    outItemVarName = $"({outItemFullTypeName})__FROM__.{inItemVarName}";
+            if (isRecursive && target.MaxDepth == 0)
+                maxDepth = target.MaxDepth = 1;
 
-                return false;
-            case { Exists: false }:
-
-                return hasMapping = 
-                    TryGetOrAdd(compilation, _in, _out, from, to, out var mapper) 
-                    && (map = mapper[_in]!) is { CanBuild: true };
-
+            return isRecursive;
         }
 
-        return false;
+        string build()
+        {
+            string underlyingCollectionType = $"global::System.Collections.Generic.List<{targetItemFullTypeName}>()";
+
+            (string defaultType, string initType, Func<string, string> returnExpr) = (targetCollInfo.Type, targetCollInfo.DataType.IsInterface) switch
+            {
+                (EnumerableType.ReadOnlyCollection, true) =>
+                    ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, v => $"new global::System.Collections.ObjectModel.ReadOnlyCollection<{targetItemFullTypeName}>({v})"),
+                (EnumerableType.Collection, true) =>
+                    ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyCollection", underlyingCollectionType, v => v),
+                _ =>
+                    ("new " + targetFullTypeName + "()", targetFullTypeName + "()", new Func<string, string>(v => v))
+            };
+
+            //User? <== UserDto?
+            var checkNull = (!targetItem.IsNullable || !targetCollInfo.ItemDataType.IsPrimitive) && sourceItem.IsNullable;
+
+            string? suffix = (sourceCollInfo.Type, targetCollInfo.Type) is (not EnumerableType.Array, EnumerableType.ReadOnlySpan) ? ".AsSpan()" : null,
+                sourceBang = sourceItem.Bang,
+                defaultSourceBang = sourceItem.DefaultBang;
+
+            string method = $@"
+    /// <summary>
+    /// Creates a new instance of <see cref=""{targetFullTypeName}""/> based from a given <see cref=""{sourceFullTypeName}""/>
+    /// </summary>
+    /// <param name=""input"">Data source to be mappped</param>{(isRecursive ? $@"
+    /// <param name=""depth"">Depth index for recursivity control</param>
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
+    public static {targetFullTypeName} {methodName}(this {sourceFullTypeName} input{(isRecursive ? $@", int depth = 0, int maxDepth = {target.MaxDepth})
+    {{
+        if (depth >= maxDepth) 
+            return {(ltrInfo.CreateArray
+            ? $"global::System.Array.Empty<{targetItemFullTypeName}>()"
+            : defaultType
+            )};
+" : @")
+    {")}
+        {(ltrInfo.CreateArray
+            ? ltrInfo.Redim
+                ? $@"int len = 0, aux = 16;
+        var output = new {targetItemFullTypeName}[aux];"
+                : $@"int len = input.{countProp};
+        var output = new {targetItemFullTypeName}[len];"
+            : $@"var output = new {initType};")}
+";
+
+            if (ltrInfo.Iterator == "for")
+            {
+                method += $@"
+        for (int i = 0; i < len; i++)
+        {{
+            output[i] = {GenerateValue("input[i]", itemValueCreator, checkNull, sourceBang, defaultSourceBang)};
+        }}
+
+        return output{suffix};
+    }}
+";
+            }
+            else
+            {
+                method += $@"
+        foreach (var item in input)
+        {{";
+                if (ltrInfo.CreateArray)
+                {
+                    method += $@"
+            output[len{(ltrInfo.Redim ? null : "++")}] = {GenerateValue("item", itemValueCreator, checkNull, sourceBang, defaultSourceBang)};";
+                    method += ltrInfo.Redim
+                        //redim array
+                        ? $@"
+
+            if (aux == ++len)
+                global::System.Array.Resize(ref output, aux *= 2);
+        }}
+        
+        return (len < aux ? output[..len] : output){suffix};
+    }}"
+                        //normal ending
+                        : $@"
+        }}
+
+        return output{suffix};
+    }}";
+
+                }
+                else
+                {
+                    method += $@"
+            output.{ltrInfo.Method}({GenerateValue("item", itemValueCreator, checkNull, sourceBang, defaultSourceBang)});
+        }}
+
+        return {returnExpr("output")};
+    }}
+";
+                }
+            }
+
+            return method;
+        }
+
+        /*string buildFill()
+        {
+            string underlyingCollectionType = $"global::System.Collections.Generic.List<{targetItemFullTypeName}>()";
+
+            (string defaultType, string initType, Func<string, string> returnExpr) = (targetCollInfo.Type, targetCollInfo.DataType.IsInterface) switch
+            {
+                (EnumerableType.ReadOnlyCollection, true) =>
+                    ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, v => $"new global::System.Collections.ObjectModel.ReadOnlyCollection<{targetItemFullTypeName}>({v})"),
+                (EnumerableType.Collection, true) =>
+                    ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyCollection", underlyingCollectionType, v => v),
+                _ =>
+                    ("new " + targetFullTypeName + "()", targetFullTypeName + "()", new Func<string, string>(v => v))
+            };
+
+            var checkNull = sourceItem.IsNullable;
+
+            string? suffix = (sourceCollInfo.Type, targetCollInfo.Type) is (not EnumerableType.Array, EnumerableType.ReadOnlySpan) ? ".AsSpan()" : null,
+                sourceBang = sourceItem.Bang,
+                defaultSourceBang = sourceItem.DefaultBang;
+
+            string method = $@"
+    /// <summary>
+    /// Creates a new instance of <see cref=""{targetFullTypeName}""/> based from a given <see cref=""{sourceFullTypeName}""/>
+    /// </summary>
+    /// <param name=""input"">Data source to be mappped</param>{(target.MaxDepth > 0 ? $@"
+    /// <param name=""depth"">Depth index for recursivity control</param>
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
+    public static void FillFrom{sourceMethodName}(this {targetFullTypeName} output, {sourceFullTypeName} input{(target.MaxDepth > 0 ? $@", int depth = 0, int maxDepth = {target.MaxDepth})
+    {{
+        if (depth >= maxDepth)
+        {{
+            {targetCollInfo.Type switch
+            {
+                EnumerableType.Queue or EnumerableType.Stack or EnumerableType.Collection => "output.Clear();",
+
+            }};
+            return;
+        }}
+" : @")
+    {")}
+        {(ltrInfo.CreateArray
+            ? ltrInfo.Redim
+                ? $@"int len = 0, aux = 16;        global::System.Array.Resize(ref output, aux);"
+                : $@"int len = input.{countProp};
+        global::System.Array.Resize(ref output, len);"
+            : $@"output.Clear();")}
+";
+            if (ltrInfo.Iterator == "for")
+            {
+                method += $@"
+        for (int i = 0; i < len; i++)
+        {{
+            output[i] = {GenerateValue("input[i]", itemValueCreator, checkNull, sourceBang, defaultSourceBang)};
+        }}
+    }}";
+            }
+            else
+            {
+                method += $@"
+        foreach (var item in input)
+        {{";
+                if (ltrInfo.CreateArray)
+                {
+                    method += $@"
+            output[len{(ltrInfo.Redim ? null : "++")}] = {GenerateValue("item", itemValueCreator, checkNull, sourceBang, defaultSourceBang)};";
+                    method += ltrInfo.Redim
+                        //redim array
+                        ? $@"
+
+            if (aux == ++len)
+                global::System.Array.Resize(ref output, aux *= 2);
+        }}
+        
+        if (len < aux) 
+            output = output[..len]{suffix};
+    }}"
+                        //normal ending
+                        : $@"
+        }}
+
+        return output{suffix};
+    }}";
+
+                }
+                else
+                {
+                    method += $@"
+            output.{ltrInfo.Method}({GenerateValue("item", itemValueCreator, checkNull, sourceBang, defaultSourceBang)});
+        }}
+
+        return {returnExpr("output")};
+    }}";
+                }
+            }
+
+            return method;
+        }*/
+
+        var called = false;
+
+        valueCreator = value => methodName + "(" + value + (IsRecursive(out var maxDepth) ? ", -1 + depth + 1" + (maxDepth > 1 ? ", " + maxDepth : null) : null) + ")";
+        methodCreator = () => { if (!called) { called = true; code.Append(build()); } };
+
+        return true;
     }
 
-//    internal void AddMember(Indent indent, int rootId, Ignore ignoreValue, MemberMappingInfo info, StringBuilder code, bool isInit, string inExpression, string outExpression)
-//    {
-//        switch (info.Compilation.ClassifyConversion(info.InMemberType, info.OutMemberType))
-//        {
-//            case { IsExplicit: true, IsReference: var isRef }:
-
-//                AppendFormatted(@"
-//{0}    {1} = {2};",
-//                    indent,
-//                    outExpression,
-//                    isRef
-//                        ? $"{inExpression} as {info.OutTypeName.TrimEnd('?')}"
-//                        : $"({info.OutTypeName}){inExpression}");
-
-//                return;
-//            case { Exists: false }:
-
-//                CodeGenerator map;
-
-//                if (!TryGetOrAdd(
-//                        info.Compilation,
-//                        info.InMemberType,
-//                        info.OutMemberType,
-//                        out var mapper)
-//                    || (map = mapper[info.InMemberType]!) is null)
-//                {
-//                    AppendFormatted(@"
-//{0}    /* Can't convert from 
-//{0}       {1} ({2}) 
-//{0}       into 
-//{0}       {3} ({4}); */", indent, inExpression, info.InTypeName, outExpression, info.OutTypeName);
-
-//                    return;
-//                }
-
-//                string
-//                    from = inExpression.Replace(".", ""),
-//                    to = outExpression.Replace(".", "");
-
-//                if (info.IsInNullable && map.CanCreateNullableMapper(rootId))
-//                {
-//                    AppendFormatted(@"
-//{0}    if ({2} is {{}} {1})
-//{0}    {{", indent, from, inExpression);
-
-//                    indent++;
-//                    //Build mapper
-//                    BuildType(map, indent, rootId, info.OutTypeName.TrimEnd('?'), from, to);
-
-//                    AppendFormatted(@"
-//{0}    {1} = {2};", indent, outExpression, to);
-
-//                    indent--;
-//                    AppendFormatted(@"
-//{0}    }}", indent, from, inExpression);
-//                }
-//                else if (!info.IsInNullable && map.CanCreateMapper(rootId))
-//                {
-//                    AppendFormatted(@"
-//{0}    var {1} = {2};", indent, from, inExpression);
-
-//                    //Build mapper
-//                    BuildType(map, indent, rootId, info.OutTypeName.TrimEnd('?'), from, to);
-
-//                    AppendFormatted(@"
-//{0}    {1} = {2};", indent, outExpression, to);
-//                }
-
-//                return;
-//        }
-
-//        if (isInit)
-//            AppendFormatted(@"
-//{0}    {1} = {2}", indent, outExpression, inExpression);
-
-//        else
-//            AppendFormatted(@"
-//{0}    {1} = {2};", indent, outExpression, inExpression);
-//    }
-
-    static bool IsEnumerable(ITypeSymbol type, string globalizedGenericName, out IterInfo output)
+    static string GenerateValue
+    (
+        string item,
+        Func<string, string> generateValue,
+        bool checkNull,
+        string? sourceBang,
+        string? defaultSourceBang
+    )
     {
-        output = new();
+        var shouldCache = (item.Contains('[') || item.Contains('.'));
+        var itemCache = item;
+        var indexPos = item.IndexOf("[");
 
-        if (type.SpecialType == SpecialType.System_String || type.IsPrimitive())
+        var value = (generateValue == null, checkNull && shouldCache) switch
+        {
+            (false, true) => generateValue!(itemCache = "_" + (indexPos > -1 ? item[..item.IndexOf("[")] : item).Replace(".", "")),
+            (false, false) => generateValue!(item),
+            (true, true) => itemCache = "_" + (indexPos > -1 ? item[..item.IndexOf("[")] : item).Replace(".", ""),
+            _ => item
+        };
+
+        return checkNull
+            ? $"{item} is {{}}{(shouldCache ? " " + itemCache : null)} ? {value} : default{defaultSourceBang}"
+            : value + sourceBang;
+    }
+
+    internal static int GetId(ITypeSymbol type)
+    {
+        return _comparer.GetHashCode(type.IsNullable()
+            ? ((INamedTypeSymbol)type).TypeArguments[0]
+            : type);
+    }
+
+    private void CreateTypeBuilders<TTarget, TSource>
+    (
+        TypeMappingInfo map,
+        string mappingPath,
+        Member target,
+        Member source,
+        ReadOnlySpan<TTarget> targetMembers,
+        ReadOnlySpan<TSource> sourceMembers
+    )
+    where TTarget : ISymbol
+    where TSource : ISymbol
+    {
+        if (map is { IsCollection: not true, TargetType.IsInterface: true, SourceType.IsInterface: true })
+            return;
+
+        string
+            sourceFullTypeName = map.SourceType.NotNullFullName,
+            targetFullTypeName = map.TargetType.NotNullFullName,
+            ttsTypeStart = map.SourceType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, sourceFullTypeName),
+            ttsTypeEnd = map.SourceType.IsTupleType ? TUPLE_END : TYPE_END,
+            sttTypeStart = map.TargetType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, targetFullTypeName),
+            sttTypeEnd = map.TargetType.IsTupleType ? TUPLE_END : TYPE_END,
+            ttsSpacing = map.SourceType.IsTupleType ? " " : @"
+            ",
+            sttSpacing = map.TargetType.IsTupleType ? " " : @"
+            ";
+
+        MemberBuilder
+            ttsMembers = null!,
+            sttMembers = null!;
+
+        string?
+            sttComma = null,
+            ttsComma = null;
+
+        int
+            l = -1,
+            r = -1,
+            lLen = targetMembers.Length,
+            rLen = sourceMembers.Length;
+
+        uint mapId = map.Id;
+
+        bool
+            toSameType = map.AreSameType,
+            ttsCalled = false,
+            sttCalled = false,
+            hasComplexTTSMembers = false,
+            hasComplexSTTMembers = false,
+            isSTTRecursive = false,
+            isTTSRecursive = false;
+
+        if(map.BuildToTargetValue is null || !map.TargetType.IsValueType)
+            map.BuildToTargetValue = val => map.ToTargetMethodName + "(" + val + (isSTTRecursive ? ", depth + 1" + (source.MaxDepth > 1 ? ", " + source.MaxDepth : null) : null) + ")";
+
+        map.BuildToTargetMethod = () =>
+        {
+            if (sttCalled)
+                return;
+
+            sttCalled = true;
+
+            var maxDepth = target.MaxDepth;
+
+            if (isSTTRecursive && target.MaxDepth == 0)
+                maxDepth = target.MaxDepth = 1;
+
+            CreateDefaultMethod(isSTTRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceFullTypeName, targetFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+
+            if (MappingKind.Fill.HasFlag(map.MappingsKind))
+            {
+                CreateFillMethod(isSTTRecursive, maxDepth, map.TargetType.IsValueType, map.FillTargetFromSourceMethodName, targetFullTypeName, sourceFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+
+                foreach (var item in map.TargetType.UnsafePropertyFieldsGetters)
+                    item.Render(code);
+            }
+
+            if(map.AddSTTTryGet)
+                CreateTryGetMethod(isSTTRecursive, maxDepth, toSameType, map.TryGetTargetMethodName, map.ToTargetMethodName, map.SourceType.FullName, map.TargetType.FullName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+            
+            map.BuildToTargetMethod = null;
+        };
+
+        if (map.BuildToSourceValue is null || !map.SourceType.IsValueType)
+            map.BuildToSourceValue = val => map.ToSourceMethodName + "(" + val + (isTTSRecursive ? ", depth + 1" + (target.MaxDepth > 1 ? ", " + target.MaxDepth : null) : null) + ")";
+
+        map.BuildToSourceMethod = () =>
+        {
+            if (ttsCalled)
+                return;
+
+            ttsCalled = true;
+
+            if (isTTSRecursive && source.MaxDepth == 0)
+                source.MaxDepth = 1;
+
+            CreateDefaultMethod(isTTSRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetFullTypeName, sourceFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+
+            if (MappingKind.Fill.HasFlag(map.MappingsKind))
+            {
+                CreateFillMethod(isTTSRecursive, source.MaxDepth, map.SourceType.IsValueType, map.FillSourceFromTargetMethodName, sourceFullTypeName, targetFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+
+                foreach (var item in map.SourceType.UnsafePropertyFieldsGetters)
+                    item.Render(code);
+            }
+
+            if(map.AddTTSTryGet)
+                CreateTryGetMethod(isTTSRecursive, source.MaxDepth, toSameType, map.TryGetSourceMethodName, map.ToSourceMethodName, map.TargetType.FullName, map.SourceType.FullName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+            
+            map.BuildToSourceMethod = null;
+        };
+
+        while (++l < lLen)
+        {
+            if (IsNotMappable(targetMembers[l], out var targetMemberType, out var targetMember))
+                continue;
+
+            while (++r < rLen)
+            {
+                if (IsNotMappable(sourceMembers[r], out var sourceMemberType, out var sourceMember)
+                    || AreNotMappableByDesign(map.TargetType.IsTupleType || map.SourceType.IsTupleType, targetMember, sourceMember))
+
+                    continue;
+
+                if (mapId == GetId(targetMember.TypeId, sourceMember.TypeId))
+                {
+                    targetMember.Type = targetMember.OwningType = map.TargetType;
+                    sourceMember.Type = sourceMember.OwningType = map.SourceType;
+
+                    if (!map.TargetType.IsInterface && !targetMember.Ignore)
+                    {
+                        map.STTMemberCount++;
+
+                        if (targetMember.IsNullable)
+                            map.AddSTTTryGet = true;
+
+                        map.TargetType.IsRecursive = isSTTRecursive = true;
+
+                        hasComplexSTTMembers = true;
+
+                        sttMembers += f =>
+                        {
+                            code.Append(BuildTypeMember(
+                                f,
+                                ref sttComma,
+                                sttSpacing,
+                                map.BuildToTargetValue,
+                                sourceMember,
+                                targetMember,
+                                map.ToTargetMethodName,
+                                map.FillTargetFromSourceMethodName));
+
+                            if(targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                map.AuxiliarMappings += () => nullUnsafeAccesor.Render(code);
+                        };
+                    }
+
+                    if (!toSameType && !map.SourceType.IsInterface && !sourceMember.Ignore)
+                    {
+                        map.TTSMemberCount++;
+
+                        map.SourceType.IsRecursive = isTTSRecursive = true;
+                        hasComplexTTSMembers = true;
+
+                        if (sourceMember.IsNullable)
+                            map.AddTTSTryGet = true;
+
+                        ttsMembers += f =>
+                        {
+                            code.Append(BuildTypeMember(
+                                f,
+                                ref ttsComma,
+                                ttsSpacing,
+                                map.BuildToSourceValue,
+                                targetMember,
+                                sourceMember,
+                                map.ToSourceMethodName,
+                                map.FillSourceFromTargetMethodName));
+
+                            if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                map.AuxiliarMappings += () => nullUnsafeAccesor.Render(code);
+                        };
+                    }
+
+                    map.CanMap |= map.HasTargetToSourceMap || map.HasTargetToSourceMap;
+
+                    break;
+                }
+
+                var memberMap = GetOrAddMapper(
+                    targetMemberType,
+                    sourceMemberType,
+                    targetMember.TypeId,
+                    sourceMember.TypeId);
+
+                memberMap = CreateType(
+                    memberMap,
+                    targetMember,
+                    sourceMember,
+                    mappingPath + targetMember.TypeId + "+",
+                    mappingPath + sourceMember.TypeId + "+");
+
+                if (memberMap is { CanMap: not false })
+                {
+                    targetMember.OwningType = map.TargetType;
+                    sourceMember.OwningType = map.SourceType;
+                    targetMember.Type = memberMap.TargetType;
+                    sourceMember.Type = memberMap.SourceType;
+
+                    if (!map.TargetType.IsInterface && !targetMember.Ignore)
+                    {
+                        map.STTMemberCount++;
+
+                        if (sourceMember.IsNullable)
+                            memberMap.AddSTTTryGet = true;
+
+                        hasComplexSTTMembers = !memberMap.TargetType.IsPrimitive;
+
+                        map.TargetType.IsRecursive |= isSTTRecursive |= memberMap.TargetType.IsRecursive;
+
+                        sttMembers += f =>
+                        {
+                            code.Append(BuildTypeMember(
+                                f,
+                                ref sttComma,
+                                sttSpacing,
+                                memberMap.BuildToTargetValue,
+                                sourceMember,
+                                targetMember,
+                                memberMap.ToTargetMethodName,
+                                memberMap.FillTargetFromSourceMethodName));
+
+                            if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                map.AuxiliarMappings += () => nullUnsafeAccesor.Render(code);
+                        };
+                    }
+
+                    if (!toSameType && !map.SourceType.IsInterface && !sourceMember.Ignore)
+                    {
+                        map.TTSMemberCount++;
+
+                        if (targetMember.IsNullable)
+                            memberMap.AddTTSTryGet = true;
+
+                        hasComplexTTSMembers = !memberMap.SourceType.IsPrimitive;
+
+                        map.SourceType.IsRecursive |= isTTSRecursive |= memberMap.SourceType.IsRecursive;
+
+                        ttsMembers += f =>
+                        {
+                            code.Append(BuildTypeMember(
+                                f,
+                                ref ttsComma,
+                                ttsSpacing,
+                                memberMap.BuildToSourceValue,
+                                targetMember,
+                                sourceMember,
+                                memberMap.ToSourceMethodName,
+                                memberMap.FillSourceFromTargetMethodName));
+
+                            if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                map.AuxiliarMappings += () => nullUnsafeAccesor.Render(code);
+                        };
+                    }
+
+                    if (map.MappingsKind == MappingKind.All && memberMap.MappingsKind != MappingKind.All 
+                        && (sourceMember.IsInit || targetMember.IsInit))
+                        memberMap.MappingsKind = MappingKind.All;
+
+                    if (true == (map.CanMap |= map.HasTargetToSourceMap || map.HasSourceToTargetMap)
+                        && (!memberMap.TargetType.IsPrimitive || memberMap.TargetType.IsTupleType
+                        || !memberMap.SourceType.IsPrimitive || memberMap.SourceType.IsTupleType))
+                        map.AuxiliarMappings += memberMap.BuildMethods;
+
+                    break;
+                }
+            }
+
+            r = -1;
+        }
+
+        if (!map.HasSourceToTargetMap)        
+        {
+            map.AddSTTTryGet = false;
+        }
+
+        if (!map.HasTargetToSourceMap)
+        {
+            map.AddTTSTryGet = false;
+        }
+
+        void CreateDefaultMethod(bool isRecursive, int maxDepth, bool toSameType, string typeStart, string typeEnd, string methodName, string sourceFullTypeName, string targetFullTypeName, string? defaultSourceBang, MemberBuilder members, bool hasComplexMembers)
+        {
+            if (members is null) return;
+            code.Append($@"
+    /// <summary>
+    /// Creates a new instance of <see cref=""{targetFullTypeName}""/> based from a given instance of <see cref=""{sourceFullTypeName}""/>
+    /// </summary>
+    /// <param name=""input"">Data source to be mappped</param>{(isRecursive ? $@"
+    /// <param name=""depth"">Depth index for recursivity control</param>
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
+    public static {targetFullTypeName} {methodName}(this {sourceFullTypeName} input{(
+                isRecursive
+                    ? $@", int depth = 0, int maxDepth = {maxDepth})
+    {{
+        if (depth >= maxDepth) 
+            return default{defaultSourceBang};
+"
+                    : $@")
+    {{")}
+        return {typeStart}");
+
+            members(false);
+
+            code.Append($@"{typeEnd};
+    }}
+");
+        }
+
+        void CreateTryGetMethod
+        (
+            bool isRecursive,
+            short maxDepth,
+            bool toSameType,
+            string methodName,
+            string toMethodName,
+            string sourceFullTypeName,
+            string targetFullTypeName,
+            string? defaultSourceBang,
+            MemberBuilder members,
+            bool hasComplexMembers
+        )
+        {
+            if (members is null) return;
+            code.Append($@"
+    /// <summary>
+    /// Tries to create a new instance of <see cref=""{targetFullTypeName}""/> based from a given instance of <see cref=""{sourceFullTypeName}""/> if it's not null
+    /// </summary>
+    /// <param name=""input"">Data source</param>{(isRecursive ? $@"
+    /// <param name=""depth"">Depth index for recursivity control</param>
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    public static bool {methodName}(this {sourceFullTypeName} input, out {targetFullTypeName} output{(
+                isRecursive
+                    ? $@", int depth = 0, int maxDepth = {maxDepth})
+    {{"
+                    : $@")
+    {{")}
+        if (input is {{}} _input)
+        {{
+            output = {toMethodName}(_input{(isRecursive ? ", depth, maxDepth" : null)});
+            return true;
+        }}
+        output = default{defaultSourceBang};
+        return false;
+    }}
+");
+        }
+
+        void CreateFillMethod
+        (
+            bool isRecursive,
+            short maxDepth,
+            bool isValueType,
+            string fillMethodName,
+            string targetFullTypeName,
+            string sourceFullTypeName,
+            string? sourceBang,
+            MemberBuilder members,
+            bool hasComplexMembers
+        )
+        {
+            if (members is null) return;
+            string? _ref = (isValueType ? "ref " : null);
+            code.Append($@"
+    /// <summary>
+    /// Update an instance of <see cref=""{targetFullTypeName}""/> based from a given instance of <see cref=""{sourceFullTypeName}""/> 
+    /// </summary>
+    /// <param name=""input"">Data source to be mappped</param>{(isRecursive ? $@"
+    /// <param name=""depth"">Depth index for recursivity control</param>
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
+    public static {_ref}{targetFullTypeName} {fillMethodName}({_ref}this {targetFullTypeName} output, {sourceFullTypeName} input{(
+                isRecursive
+                    ? $@", int depth = 0, int maxDepth = {maxDepth})
+    {{
+        if (depth >= maxDepth) 
+            return {_ref}output{sourceBang};
+"
+                    : $@")
+    {{")}");
+
+            members(true);
+
+            code.Append($@"
+
+        return {_ref}output;
+    }}
+");
+        }
+    }
+
+    delegate void MemberBuilder(bool isFill);
+
+
+
+    bool IsCollection
+    (
+        ref TypeMappingInfo map,
+        out CollectionInfo targetColl,
+        out CollectionInfo sourceColl,
+        out CollectionMapping ltrInfo,
+        out CollectionMapping rtlInfo
+    )
+    {
+        if (map.IsCollection is false)
+        {
+            SetDefaults(out targetColl, out sourceColl, out ltrInfo, out rtlInfo);
+            return false;
+        }
+
+        if (map.IsCollection is true)
+        {
+            targetColl = map.TargetType.CollectionInfo;
+            sourceColl = map.SourceType.CollectionInfo;
+            ltrInfo = map.LTRCollection;
+            rtlInfo = map.RTLCollection;
+            return true;
+        }
+        else
+        {
+            SetDefaults(out targetColl, out sourceColl, out ltrInfo, out rtlInfo);
+
+            if (map.TargetType.IsIterable is false || map.SourceType.IsIterable is false)
+                return false;
+
+
+            if (map.TargetType.IsIterable is true)
+            {
+                targetColl = map.TargetType.CollectionInfo;
+            }
+            else if (map.TargetType.IsIterable is null
+                && true == (map.TargetType.IsIterable = IsEnumerableType(map.TargetType.NonGenericFullName, map.TargetType._typeSymbol, out targetColl)))
+            {
+                map.TargetType.CollectionInfo = targetColl;
+            }
+            else
+                return false;
+
+            if (map.SourceType.IsIterable is true)
+            {
+                sourceColl = map.SourceType.CollectionInfo;
+            }
+            else if (map.SourceType.IsIterable is null
+                && true == (map.SourceType.IsIterable = IsEnumerableType(map.SourceType.NonGenericFullName, map.SourceType._typeSymbol, out sourceColl)))
+            {
+                map.SourceType.CollectionInfo = sourceColl;
+            }
+            else
+                return false;
+
+            if (map.IsCollection is null)
+            {
+                ltrInfo = map.LTRCollection = GetResult(targetColl, sourceColl, map.ToSourceMethodName);
+                rtlInfo = map.RTLCollection = GetResult(sourceColl, targetColl, map.ToTargetMethodName);
+                map.IsCollection = true;
+                return true;
+            }
+
+            map.IsCollection = false;
 
             return false;
+        }
 
-        switch (globalizedGenericName)
+        static void SetDefaults(out CollectionInfo targetColl, out CollectionInfo sourceColl, out CollectionMapping ltrInfo, out CollectionMapping rtlInfo)
+        {
+            ltrInfo = default;
+            rtlInfo = default;
+            targetColl = default;
+            sourceColl = default;
+        }
+    }
+
+    private static CollectionInfo GetCollectionInfo(EnumerableType enumerableType, ITypeSymbol typeSymbol)
+        => enumerableType switch
+        {
+#pragma warning disable format
+            EnumerableType.Queue =>
+                new(typeSymbol.AsNonNullable(), enumerableType, typeSymbol.IsNullable(), false, true, true,   false,  "Enqueue",  "Count"),
+            EnumerableType.Stack =>
+                new(typeSymbol.AsNonNullable(), enumerableType, typeSymbol.IsNullable(), false, true, true,   false,  "Push",     "Count"),
+            EnumerableType.Enumerable =>
+                new(typeSymbol.AsNonNullable(), enumerableType, typeSymbol.IsNullable(), false, true, false,  true,   null,       "Length"),
+            EnumerableType.ReadOnlyCollection =>
+                new(typeSymbol.AsNonNullable(), enumerableType, typeSymbol.IsNullable(), true, true,  true,   false,  "Add",      "Count"),
+            EnumerableType.ReadOnlySpan =>
+                new(typeSymbol.AsNonNullable(), enumerableType, typeSymbol.IsNullable(), true, true,  true,   true,   null,       "Length"),
+            EnumerableType.Collection =>
+                new(typeSymbol.AsNonNullable(), enumerableType, typeSymbol.IsNullable(), true, false, true,   false,  "Add",      "Count"),
+            EnumerableType.Span =>
+                new(typeSymbol.AsNonNullable(), enumerableType, typeSymbol.IsNullable(), true, false, true,   true,   null,       "Length"),
+            _ =>
+                new(typeSymbol.AsNonNullable(), enumerableType, typeSymbol.IsNullable(), true, false, true,   true,   null,       "Length")
+#pragma warning restore format
+        };
+
+    static CollectionMapping GetResult(CollectionInfo a, CollectionInfo b, string toMethodName)
+    {
+        var redim = !a.Countable && b.BackingArray;
+
+        var iterator = a.Indexable && b.BackingArray ? "for" : "foreach";
+
+        return new(b.BackingArray, b.BackingArray && !a.Indexable, iterator, redim, b.Method, toMethodName);
+    }
+
+    bool IsEnumerableType(string fullNonGenericName, ITypeSymbol type, out CollectionInfo info)
+    {
+        if (type.IsPrimitive(true))
+        {
+            info = default;
+            return false;
+        }
+
+        switch (fullNonGenericName)
         {
             case "global::System.Collections.Generic.Stack"
             :
-                output.AddMethod = @"{0}.Push({1});";
-
-                output.CountProperty = "Count";
-
-                output.ItemFullTypeName =
-                    (output.Type = ((INamedTypeSymbol)type).TypeArguments.FirstOrDefault() ?? (objectTypeSymbol))
-                        .ToGlobalizedNamespace();
+                info = GetCollectionInfo(EnumerableType.Stack, GetEnumerableType(compilation, type));
 
                 return true;
 
             case "global::System.Collections.Generic.Queue"
             :
-                output.AddMethod = @"{0}.Enqueue({1});";
+                info = GetCollectionInfo(EnumerableType.Queue, GetEnumerableType(compilation, type));
 
-                output.CountProperty = "Count";
-                output.ItemFullTypeName =
-                    (output.Type = ((INamedTypeSymbol)type).TypeArguments.FirstOrDefault() ?? objectTypeSymbol)
-                    .ToGlobalizedNamespace();
+                return true;
+
+            case "global::System.ReadOnlySpan"
+            :
+
+                info = GetCollectionInfo(EnumerableType.ReadOnlySpan, GetEnumerableType(compilation, type));
+
+                return true;
+
+            case "global::System.Span"
+            :
+                info = GetCollectionInfo(EnumerableType.Span, GetEnumerableType(compilation, type));
 
                 return true;
 
@@ -678,12 +1078,7 @@ public static partial class Mappers
                 "global::System.Collections.Generic.IList" or
                 "global::System.Collections.Generic.List"
             :
-                output.AddMethod = @"{0}.Add({1});";
-
-                output.ItemFullTypeName =
-                    (output.Type = ((INamedTypeSymbol)type).TypeArguments.FirstOrDefault() ?? objectTypeSymbol)
-                    .ToGlobalizedNamespace();
-                output.CountProperty = "Count";
+                info = GetCollectionInfo(EnumerableType.Collection, GetEnumerableType(compilation, type));
 
                 return true;
 
@@ -692,393 +1087,532 @@ public static partial class Mappers
                 "global::System.Collections.Generic.IReadOnlyCollection" or
                 "global::System.Collections.Generic.ReadOnlyCollection"
             :
-                output.AddMethod = null!;
-                output.CountProperty = "Count";
-                output.ItemFullTypeName =
-                    (output.Type = ((INamedTypeSymbol)type).TypeArguments.FirstOrDefault() ?? objectTypeSymbol)
-                    .ToGlobalizedNamespace();
+                info = GetCollectionInfo(EnumerableType.ReadOnlyCollection, GetEnumerableType(compilation, type));
 
                 return true;
 
             case "global::System.Collections.Generic.IEnumerable"
             :
-                output.AddMethod = null!;
-                output.ItemFullTypeName =
-                    (output.Type = ((INamedTypeSymbol)type).TypeArguments.FirstOrDefault() ?? objectTypeSymbol)
-                    .ToGlobalizedNamespace();
-
-                output.IterableType = IterableType.Enumerable;
+                info = GetCollectionInfo(EnumerableType.Enumerable, GetEnumerableType(compilation, type));
 
                 return true;
 
             default:
                 if (type is IArrayTypeSymbol { ElementType: { } elType })
                 {
-                    output.ItemFullTypeName =
-                        (output.Type = elType)
-                        .ToGlobalizedNamespace();
-
-                    output.CountProperty = "Length";
-                    output.IterableType = IterableType.Array;
+                    info = GetCollectionInfo(EnumerableType.Array, elType);
 
                     return true;
                 }
                 else
                     foreach (var item in type.AllInterfaces)
-                        if (IsEnumerable(item, item.ToGlobalizedNonGenericNamespace(), out output))
+                        if (IsEnumerableType(item.ToGlobalizedNonGenericNamespace(), item, out info))
                             return true;
-                output.Type = objectTypeSymbol;
                 break;
         }
 
+        info = default;
         return false;
+
+        static ITypeSymbol GetEnumerableType(Compilation compilation, ITypeSymbol enumerableType)
+        {
+            return ((INamedTypeSymbol)enumerableType).TypeArguments.FirstOrDefault() ?? compilation.ObjectType;
+        }
     }
 
-    internal bool FindMappableMembers(
-        Compilation compilation,
-        MappingDescriptor desc,
-        string from,
-        string to)
+    static bool IsNotMappable(ISymbol member, out ITypeSymbol typeOut, out Member memberOut)
     {
-        if ((desc.Mapped && !desc.IsMappable)
-            || desc.TypeA.IsPrimitive()
-            || desc.TypeB.IsPrimitive()
-            || !GetMappableMembers(desc.TypeA, out var inMembers)
-            || !GetMappableMembers(desc.TypeB, out var outMembers))
+        var isAccesible = member.DeclaredAccessibility is Accessibility.Internal or Accessibility.Public or Accessibility.ProtectedAndInternal or Accessibility.ProtectedOrInternal;
 
-            return false;
-
-        foreach (var inMember in inMembers)
+        switch (member)
         {
-            foreach (var outMember in outMembers)
+            case IPropertySymbol
             {
-                string
-                    inMemberName = inMember.ToNameOnly(),
-                    outMemberName = outMember.ToNameOnly();
-                bool
-                    nameEquals = inMemberName == outMemberName,
-                    isFromToMappable = AreMappablesByAttribute(compilation, inMember, outMember, out var ignoreSource),
-                    isToFromMappable = AreMappablesByAttribute(compilation, outMember, inMember, out var ignoreTarget);
+                ContainingType.Name: not ("IEnumerator" or "IEnumerator<T>"),
+                IsIndexer: false,
+                Type: { } type,
+                IsReadOnly: var isReadonly,
+                IsWriteOnly: var isWriteOnly,
+                SetMethod.IsInitOnly: var isInitOnly
+            }:
+                (typeOut, memberOut) = (
+                    type.AsNonNullable(),
+                    new(_comparer.GetHashCode(member),
+                        member.ToNameOnly(),
+                        GetId(type.AsNonNullable()),
+                        type.IsNullable(),
+                        isAccesible && !isWriteOnly,
+                        isAccesible && !isReadonly,
+                        member.GetAttributes(),
+                        isInitOnly == true,
+                        isAccesible,
+                        true));
 
-                if (ignoreSource == Ignore.Both || ignoreTarget == Ignore.Both)
-                    continue;
-
-                var inMemberType = (inMember as IPropertySymbol)?.Type ?? ((IFieldSymbol)inMember).Type;
-                var outMemberType = (outMember as IPropertySymbol)?.Type ?? ((IFieldSymbol)outMember).Type;
-
-                var inMemberTypeName = inMemberType.ToGlobalizedNamespace();
-                var outMemberTypeName = outMemberType.ToGlobalizedNamespace();
-
-                string inNonGenericTypeName = inMemberType.ToGlobalizedNonGenericNamespace();
-                string outNonGenericTypeName = outMemberType.ToGlobalizedNonGenericNamespace();
-
-                var inNullable = inMemberType.IsNullable();
-                var outNullable = outMemberType.IsNullable();
-
-                if (TryDefineMapper(
-                        inMember,
-                        outMember,
-                        inMemberType,
-                        outMemberType,
-                        from, 
-                        to,
-                        inMemberName,
-                        outMemberName,
-                        inNonGenericTypeName,
-                        outNonGenericTypeName,
-                        outMemberTypeName,
-                        inNullable,
-                        nameEquals,
-                        isFromToMappable,
-                        ignoreTarget,
-                        desc.AMapper) 
-                    | // Performs both comparison
-                    TryDefineMapper(
-                        outMember,
-                        inMember,
-                        outMemberType,
-                        inMemberType,
-                        to,
-                        from,
-                        outMemberName,
-                        inMemberName,
-                        outNonGenericTypeName,
-                        inNonGenericTypeName,
-                        inMemberTypeName,
-                        outNullable,
-                        nameEquals,
-                        isToFromMappable,
-                        ignoreSource,
-                        desc.BMapper))
-                    break;
-            }
-        }
-
-        bool TryDefineMapper(
-            ISymbol inMember,
-            ISymbol outMember,
-            ITypeSymbol inMemberType,
-            ITypeSymbol outMemberType,
-            string from,
-            string to,
-            string inMemberName,
-            string outMemberName,
-            string inNonGenericTypeName,
-            string outNonGenericTypeName,
-            string outMemberTypeName,
-            bool inNullable,
-            bool nameEquals,
-            bool isMappable,
-            Ignore ignoreTarget,
-            CodeGenerator codeGen)
-        {
-            if (ignoreTarget != Ignore.Target && (nameEquals || isMappable) 
-                && AreMappablesByDesign(inMember, outMember))
-            {
-                desc.IsMappable |= true;
-                codeGen.CanBuild |= true;
-
-                //Determine conversion type: complex, iterable or just assignable (might imply conversion)
-                bool hasMapping = false;
-
-                if (IsEnumerable(inMemberType, inNonGenericTypeName, out var _in) &&
-                         IsEnumerable(outMemberType, outNonGenericTypeName, out var _out))
-                {
-                    codeGen.PreInitialize += (indent, rootId) =>
-                    {
-                        AppendFormatted(@"
-{0}    //Should generate a mapping iterator for {1}({2})", indent, outMemberName, outMemberTypeName);
-                    };
-
-                }
-                else if (NeedsConverter(compilation, inMemberType, outMemberType, outMemberTypeName, inMemberName, ref inMemberName, from, to, out hasMapping, out var subCodeGen))
-                {
-                    if (hasMapping)
-                    {
-                        codeGen.PreInitialize += (indent, _) =>
-                        {
-                            if (inNullable && codeGen.CanCreateNullableMapper(codeGen.id))
-                            {
-                                AppendFormatted(@"
-{0}    if ({1} is {{}} {2})
-{0}    {{", indent, from + '.' + inMemberName, from + inMemberName);
-
-                                indent++;
-
-                                BuildType(subCodeGen, indent, codeGen.id, outMemberTypeName, from + inMemberName, to + outMemberName);
-
-                                indent--;
-
-                                AppendFormatted(@"
-{0}    }}", indent);
-                            }
-                            else if(!inNullable && codeGen.CanCreateMapper(codeGen.id))
-                            {
-                                BuildType(subCodeGen, indent, codeGen.id, outMemberTypeName, from + inMemberName, to + outMemberName);
-                            }
-                        };
-                    }
-                }
-                
-                codeGen.AddMember += (indent, rootId) =>
-                {
-                    var to2 = from + '.' + inMemberName;
-
-                    if (hasMapping)
-                        to2 = from + inMemberName;
-
-                    AppendFormatted(@"{0}
-{1}    {2} = {3}", codeGen.Comma, indent, outMemberName, from + '.' + inMemberName);
-
-                    codeGen.Comma ??= ",";
-                };
-
-            }
-            return false;
-        }
-
-        //AddEnumerableMapping(info, indent, inExpression, outExpression, _in, _out, rootId)
-
-
-        //                if (inMember is IPropertySymbol { SetMethod.IsInitOnly: true })
-        //                {
-        //                    if (!inMemberType.IsPrimitive(true))
-        //                    {
-        //                        mapper.PreInitialize += (inVarName, outVarName, indent, rootId) =>
-        //                        {
-        //                            BuildType(
-        //                                mapper,
-        //                                indent,
-        //                                rootId,
-        //                                outMemberTypeName.TrimEnd('?'),
-        //                                inNullable,
-        //                                inVarName + '.' + inMemberName,
-        //                                outVarName.Replace(".", "") + outMemberName);
-        //                        };
-        //                        mapper.Initialize += (inVarName, outVarName, indent, rootId) =>
-        //                        {
-        //                            AppendFormatted(@"{0}
-        //{1}   {2} = {3}",
-        //                                mapper.Comma,
-        //                                indent,
-        //                                outVarName + '.' + outMemberName,
-        //                                outVarName.Replace(".", "") + outMemberName);
-        //                            mapper.Comma ??= ",";
-        //                        };
-        //                    }
-        //                    else
-        //                        mapper.Initialize += (inVarName, outVarName, indent, rootId) =>
-        //                        {
-        //                            Append(mapper.Comma);
-        //                            BuildMember(
-        //                                mapping,
-        //                                parentIgnore,
-        //                                code,
-        //                                indent,
-        //                                inVarName,
-        //                                outVarName,
-        //                                true,
-        //                                rootId);
-        //                            mapper.Comma ??= ",";
-        //                        };
-        //                }
-        //                else
-        //                    mapper.Build += (inVarName, outVarName, indent, rootId) =>
-        //                    {
-        //                        BuildMember(
-        //                            mapping,
-        //                            parentIgnore,
-        //                            code,
-        //                            indent,
-        //                            inVarName,
-        //                            outVarName,
-        //                            false,
-        //                            rootId);
-        //                    };
-        //                return true;
-        //        if (item.IsMappable)
-        //        {
-        //            if (outNullable)
-        //            {
-        //                item.AMapper.Build += (_, _, indent, _) =>
-        //                    AppendFormatted(@"
-        //{0}    }}", indent);
-        //            }
-
-        //            if (inNullable)
-        //            {
-        //                item.BMapper.Build += (_, _, indent, _) =>
-        //                    AppendFormatted(@"
-        //{0}    }}", indent);
-        //            }
-        //        }
-
-        desc.Mapped = true;
-        return desc.IsMappable;
-    }
-    static bool AreMappablesByAttribute(Compilation compilation, ISymbol target, ISymbol source, out Ignore ignoreSource)
-    {
-        ignoreSource = Ignore.None;
-        var matches = false;
-
-        foreach (var attr in target.GetAttributes())
-        {
-            if (attr.AttributeClass?.ToDisplayString() is not { } className) continue;
-
-            if (className == "SourceCrafter.Mapping.Attributes.IgnoreAttribute"
-                && (ignoreSource = (Ignore)(int)attr.ConstructorArguments[0].Value!) != Ignore.Source) return false;
-
-            if (className != "SourceCrafter.Mapping.Attributes.MapAttribute") continue;
-
-            if ((ignoreSource = (Ignore)(int)attr.ConstructorArguments[1].Value!) is not (Ignore.Source or Ignore.None))
                 return false;
 
+            case IFieldSymbol
+            {
+                ContainingType.Name: not ("IEnumerator" or "IEnumerator<T>"),
+                Type: { } type,
+                AssociatedSymbol: null,
+                IsReadOnly: var isReadonly
+            }:
+                (typeOut, memberOut) =
+                    (type.AsNonNullable(),
+                     new(_comparer.GetHashCode(member),
+                        member.ToNameOnly(),
+                        GetId(type.AsNonNullable()),
+                        type.IsNullable(),
+                        isAccesible,
+                        isAccesible && !isReadonly,
+                        member.GetAttributes(),
+                        isAccesible
+                    ));
+
+                return false;
+
+            default:
+                (typeOut, memberOut) = (default!, default!);
+
+                return true;
+        }
+    }
+
+    string? BuildTypeMember(
+        bool isFill,
+        ref string? comma,
+        string spacing,
+        Func<string, string> createType,
+        Member source,
+        Member target,
+        string sourceToTargetMethodName,
+        string fillTargetFromMethodName)
+    {
+        bool checkNull = (!target.IsNullable || !target.Type.IsPrimitive) && source.IsNullable;
+
+        var _ref = target.Type.IsValueType ? "ref " : null;
+
+        if (isFill)
+        {
+            string
+                sourceMember = string.Intern("input." + source.Name),
+                targetMember = string.Intern("output." + target.Name),
+                targetType = target.Type.NotNullFullName,
+                parentFullName = target.OwningType!.NotNullFullName,
+                targetBang = target.Bang!,
+                targetDefaultBang = target.DefaultBang!,
+                getPrivFieldMethodName = $"Get{target.OwningType!.Sanitized}_{target.Name}_PF",
+                getNullMethodName = $"GetValueOfNullableOf{target.Type.Sanitized}"; 
+
+            var declareRef = !target.IsWritable || target.IsInit || target.Type.IsValueType;
+
+            if (target.Type.IsMultiMember && declareRef)
+            {
+                if (!canUseUnsafeAccessor)
+                    return null;
+
+                if (target.IsNullable)
+                {
+                    target.Type.NullableMethodUnsafeAccessor ??= new($@"
+    /// <summary>
+    /// Gets a reference to the not nullable value of <see cref=""global::System.Nullable{{{targetType}}}""/>
+    /// </summary>
+    /// <param name=""_"">Target nullable type</param>
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = ""value"")]
+    extern static ref {targetType} {getNullMethodName}(ref {targetType}? _);
+");
+                }
+
+                target.OwningType!.UnsafePropertyFieldsGetters.Add(new(targetMember, $@"
+    /// <summary>
+    /// Gets a reference to {(target.IsProperty ? $"the backing field of {parentFullName}.{target.Name} property" : $"the field {parentFullName}.{target.Name}")}
+    /// </summary>
+    /// <param name=""_""><see cref=""global::System.Nullable{{{targetType}}}""/> container reference of {target.Name} {(target.IsProperty ? "property" : "field")}</param>
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = ""{(target.IsProperty ? $"<{target.Name}>k__BackingField" : target.Name)}"")]
+    extern static ref {targetType}{(target.IsNullable ? "?" : null)} {getPrivFieldMethodName}({parentFullName} _);
+"));
+            }
+
+            if (!target.Type.IsMultiMember && (!target.IsWritable || target.OwningType?.IsReadOnly is true || (target.OwningType is { IsTupleType: false } && target.IsInit)))
+                return null;
+
+            string
+                outputVal = "_output" + target.Name,
+                inputVal = "_input" + target.Name,
+                fillFirstParam = declareRef 
+                    ? target.IsNullable
+                        ? $"{_ref}{getNullMethodName}(ref {outputVal})" 
+                        : $"{_ref}{outputVal}"
+                    : targetMember;
+
+            var start = declareRef 
+                ? $@"
+        // Nullable hack to fill without changing reference
+        ref var {outputVal} = ref {getPrivFieldMethodName}(output);" 
+                : null;
+
+            if (target.Type.IsMultiMember) // Usar el metodo Fill en vez de asignar
+            {
+                if (target.IsNullable)
+                {
+                    var notNullRightSideCheck = target.Type.IsStruct ? ".HasValue" : " is not null";
+                    if (source.IsNullable)
+                    {
+                        return $@"{start}
+        if ({sourceMember} is {{}} {inputVal})
+            if({targetMember}{notNullRightSideCheck})
+                {fillTargetFromMethodName}({fillFirstParam}, {inputVal});{(declareRef ? $@"
+            else
+                {outputVal} = {sourceToTargetMethodName}({inputVal});
+        else
+            {outputVal} = default{targetDefaultBang};" : $@"
+            else
+                {targetMember} = {sourceToTargetMethodName}({inputVal});
+        else
+            {targetMember} = default{targetDefaultBang};")}
+";
+                    }
+
+                    return $@"{start}
+        if({outputVal}{notNullRightSideCheck})
+            {fillTargetFromMethodName}({fillFirstParam}, {sourceMember});{(declareRef ? $@"
+        else
+            {outputVal} = {sourceToTargetMethodName}({sourceMember});" : $@"
+        else
+            {targetMember} = {sourceToTargetMethodName}({sourceMember});")}";
+
+                }
+                else if (source.IsNullable)
+                {
+
+                    return $@"{start}
+        if({sourceMember} is {{}} _in)
+            {fillTargetFromMethodName}({fillFirstParam}, _in);{(declareRef ? $@"
+        else
+            {outputVal} = default{targetDefaultBang};" : $@"
+        else
+            {targetMember} = default{targetDefaultBang};")}
+";
+                }
+
+                return $@"{start}
+        {fillTargetFromMethodName}({fillFirstParam}, {sourceMember});
+";
+            }
+
+            return $@"
+        {targetMember} = {GenerateValue(sourceMember, createType, checkNull, source.Bang, source.DefaultBang)};";
+
+        }
+        else
+        {
+            return Exch(ref comma, ",") + spacing + (target.OwningType?.IsTupleType is not true ? target.Name + " = " : null)
+                + GenerateValue("input." + source.Name, createType, checkNull, source.Bang, source.DefaultBang);
+        }
+    }
+
+    bool AreNotMappableByDesign(bool tupleType, Member target, Member source)
+    {
+        return !(target.Name.Equals(
+            source.Name, 
+            tupleType 
+                ? StringComparison.InvariantCultureIgnoreCase 
+                : StringComparison.InvariantCulture)
+            | CheckMappability(target, source)
+            | CheckMappability(source, target));
+    }
+
+    bool CheckMappability(Member target, Member source)
+    {
+        if (!target.IsWritable || !source.IsReadable)
+            return false;
+
+        bool canWrite = false;
+
+        foreach (var attr in target.Attributes)
+        {
+            if (attr.AttributeClass?.ToGlobalizedNamespace() is not { } className) continue;
+
+            if (className == "global::SourceCrafter.Bindings.Attributes.IgnoreBindAttribute")
+            {
+                switch ((ApplyOn)(int)attr.ConstructorArguments[0].Value!)
+                {
+                    case ApplyOn.Target:
+                        target.Ignore = true;
+                        return false;
+                    case ApplyOn.Both:
+                        target.Ignore = source.Ignore = true;
+                        return false;
+                    case ApplyOn.Source:
+                        source.Ignore = true;
+                        break;
+                }
+                if (target.Ignore && source.Ignore)
+                    return false;
+                continue;
+            }
+
+            if (className == "global::SourceCrafter.Bindings.Attributes.MaxAttribute")
+            {
+                target.MaxDepth = (short)attr.ConstructorArguments[0].Value!;
+                continue;
+            }
+
+            if (className != "global::SourceCrafter.Bindings.Attributes.BindAttribute")
+                continue;
+
             if ((attr.ApplicationSyntaxReference?.GetSyntax() as AttributeSyntax)?.ArgumentList?.Arguments[0].Expression
-                is not InvocationExpressionSyntax
+                 is InvocationExpressionSyntax
                 {
                     Expression: IdentifierNameSyntax { Identifier.Text: "nameof" },
                     ArgumentList.Arguments: [{ Expression: MemberAccessExpressionSyntax { Name: { } id } }]
                 }
-                || compilation.GetSemanticModel(id.SyntaxTree)?.GetSymbolInfo(id).Symbol is not ISymbol member) continue;
+                 && _comparer.GetHashCode(compilation.GetSemanticModel(id.SyntaxTree).GetSymbolInfo(id).Symbol) == source.Id)
+            {
+                canWrite = true;
+                switch ((ApplyOn)(int)attr.ConstructorArguments[1].Value!)
+                {
+                    case ApplyOn.Target:
+                        target.Ignore = true;
+                        return false;
+                    case ApplyOn.Both:
+                        target.Ignore = source.Ignore = true;
+                        return false;
+                    case ApplyOn.Source:
+                        source.Ignore = true;
+                        break;
+                }
 
-            matches |= AreSymbolsEquals(member, source);
+                if (target.Ignore && source.Ignore)
+                    return false;
+            }
         }
-
-        return matches;
+        return canWrite;
     }
-    private bool AreMappablesByDesign(ISymbol target, ISymbol source) =>
-        (target is IPropertySymbol { IsReadOnly: false } or IFieldSymbol { IsReadOnly: false }
-        && target.DeclaredAccessibility is Accessibility.Public or Accessibility.Internal
-        && source is
-            IPropertySymbol { IsWriteOnly: false, DeclaredAccessibility: Accessibility.Public or Accessibility.Internal }
-            or IFieldSymbol { DeclaredAccessibility: Accessibility.Public or Accessibility.Internal });
 
-    static bool GetMappableMembers(ITypeSymbol? target, out ImmutableList<ISymbol>.Builder members)
+    static void GetNullability(ref Member target, ITypeSymbol targetType, ref Member source, ITypeSymbol sourceType)
     {
-        var _members = members = ImmutableList.CreateBuilder<ISymbol>();
+        source.DefaultBang = GetDefaultBangChar(target.IsNullable, source.IsNullable, sourceType.AllowsNull());
+        source.Bang = GetBangChar(target.IsNullable, source.IsNullable);
+        target.DefaultBang = GetDefaultBangChar(source.IsNullable, target.IsNullable, targetType.AllowsNull());
+        target.Bang = GetBangChar(source.IsNullable, target.IsNullable);
+    }
 
-        readMembers(target);
+    private static string SanitizeScalar(string memberName)
+    {
+        return memberName.LastIndexOf('[') is not -1 and int r
+            ? memberName[..r] + "Item"
+            : memberName;
+    }
 
-        return _members.Count > 0;
+    static uint GetId(int targetId, int sourceId)
+        => (uint)(Math.Min(targetId, sourceId), Math.Max(targetId, sourceId)).GetHashCode();
 
-        void readMembers(ITypeSymbol? target)
+    static string? GetDefaultBangChar(bool isTargetNullable, bool isSourceNullable, bool sourceAllowsNull)
+        => !isTargetNullable && (sourceAllowsNull || isSourceNullable) ? "!" : null;
+
+    static string? GetBangChar(bool isTargetNullable, bool isSourceNullable)
+        => !isTargetNullable && isSourceNullable ? "!" : null;
+
+    static string? Exch(ref string? init, string? update = null) => ((init, update) = (update, init)).update;
+
+    TypeMappingInfo GetOrAddMapper(ITypeSymbol target, ITypeSymbol source, int targetId, int sourceId)
+    {
+        var entries = _entries;
+
+        var hashCode = GetId(targetId, sourceId);
+
+        uint collisionCount = 0;
+        ref int bucket = ref GetBucket(hashCode);
+        int i = bucket - 1; // Value in _buckets is 1-based
+
+        ref var entry = ref Unsafe.NullRef<TypeMapping>();
+
+        TypeData? targetTD = null, sourceTD = null;
+
+        while (true)
         {
-            if (target == null || target.IsPrimitive())
-                return;
+            // Should be a while loop https://github.com/dotnet/runtime/issues/9422
+            // Test uint in if rather than loop condition to drop range check for following array access
+            if ((uint)i >= (uint)entries.Length)
+            {
+                break;
+            }
 
-            readMembers(target.BaseType);
+            if (_uintComparer.Equals((entry = ref entries[i]).Id, hashCode))
+            {
+                return entry.Info;
+            }
 
-            foreach (var member in target.GetMembers())
+            entry.Info.GatherTarget(ref targetTD, targetId);
+            entry.Info.GatherSource(ref sourceTD, sourceId);
 
-                if (member is IPropertySymbol { IsIndexer: false } or IFieldSymbol { AssociatedSymbol: null })
+            i = entry.next;
 
-                    _members.Add(member);
+            collisionCount++;
+
+            if (collisionCount > (uint)entries.Length)
+            {
+                // The chain of entries forms a loop; which means a concurrent update has happened.
+                // Break out of the loop and throw, rather than looping forever.
+                throw new NotSupportedException("Concurrent operations are not allowed");
+            }
+
+
         }
+
+        int index;
+        if (_freeCount > 0)
+        {
+            index = _freeList;
+            Debug.Assert((-3 - entries[_freeList].next) >= -1, "shouldn't overflow because `next` cannot underflow");
+            _freeList = -3 - entries[_freeList].next;
+            _freeCount--;
+        }
+        else
+        {
+            if (_count == entries.Length)
+            {
+                Resize();
+                bucket = ref GetBucket(hashCode);
+            }
+            index = (int)_count;
+            _count++;
+            entries = _entries;
+        }
+
+        entries[index] = new(
+            hashCode,
+            bucket - 1,
+            new(hashCode,
+                targetTD ??= typeSet.GetOrAdd(target, targetId),
+                sourceTD ??= typeSet.GetOrAdd(source, sourceId)));
+
+        entry = ref entries[index];
+
+        entry.next = bucket - 1; // Value in _buckets is 1-based
+
+        bucket = index + 1; // Value in _buckets is 1-based
+
+        _version++;
+
+        return entry.Info;
     }
 
-    static int lastId = 0;
-    static int NextId() => ++lastId;
+    #region Dictionary Implementation
 
-    internal void GenerateNullableMethod(
-        CodeGenerator handler,
-        Indent indent,
-        string methodName,
-        string typeA,
-        string typeB)
+    internal uint _count = 0;
+
+    internal TypeMapping[] _entries = [];
+
+    private int[] _buckets = null!;
+    private static readonly uint[] s_primes = [3, 7, 11, 17, 23, 29, 37, 47, 59, 71, 89, 107, 131, 163, 197, 239, 293, 353, 431, 521, 631, 761, 919, 1103, 1327, 1597, 1931, 2333, 2801, 3371, 4049, 4861, 5839, 7013, 8419, 10103, 12143, 14591, 17519, 21023, 25229, 30293, 36353, 43627, 52361, 62851, 75431, 90523, 108631, 130363, 156437, 187751, 225307, 270371, 324449, 389357, 467237, 560689, 672827, 807403, 968897, 1162687, 1395263, 1674319, 2009191, 2411033, 2893249, 3471899, 4166287, 4999559, 5999471, 7199369];
+
+
+    private int _freeList;
+    private ulong _fastModMultiplier;
+    private int _version, _freeCount;
+
+    private static uint GetPrime(uint min)
     {
-        AppendFormatted(@"
-    public static bool {0}(this {1} from, out {2} to) 
-    {{
-        to = default;
+        uint[] array = s_primes;
 
-        if (from is null) return false;
-", methodName, typeA, typeB);
+        foreach (uint num in array)
+            if (num >= min)
+                return num;
 
-        BuildType(handler, indent, NextId(), typeB);
+        for (uint j = min | 1u; j < uint.MaxValue; j += 2)
+            if (IsPrime(j) && (j - 1) % 101 != 0)
+                return j;
 
-        Append(@"
-        return true;
-    }");
-
+        return min;
     }
 
-    internal void GenerateMethod(
-        CodeGenerator handler,
-        Indent indent,
-        string methodName,
-        string typeA,
-        string typeB
-    ){
-        AppendFormatted(@"
-    public static {2} {0}(this {1} from)
-    {{", methodName, typeA, typeB);
+    private static bool IsPrime(uint candidate)
+    {
+        if ((candidate & (true ? 1u : 0u)) != 0)
+        {
+            var num = Math.Sqrt(candidate);
 
-        BuildType(handler, indent, NextId(), typeB);
+            for (int i = 3; i <= num; i += 2)
+                if (candidate % i == 0)
+                    return false;
 
-        Append(@"
-        return to;
-    }");
+            return true;
+        }
+        return candidate == 2;
     }
 
-    public override string ToString() => code.ToString();
+    internal uint Initialize(uint capacity)
+    {
+        typeSet.Initialize(0);
+        var prime = GetPrime(capacity);
+        var buckets = new int[prime];
+        var entries = new TypeMapping[prime];
+
+        _freeList = -1;
+#if TARGET_64BIT
+        _fastModMultiplier = GetFastModMultiplier(prime);
+#endif
+
+        _buckets = buckets;
+        _entries = entries;
+        return prime;
+    }
+
+    private static ulong GetFastModMultiplier(uint divisor) => ulong.MaxValue / divisor + 1;
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ref int GetBucket(uint hashCode)
+    {
+        int[] buckets = _buckets;
+        return ref buckets[FastMod(hashCode, (uint)buckets.Length, _fastModMultiplier)];
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static uint FastMod(uint value, uint divisor, ulong multiplier) 
+        => (uint)(((multiplier * value >> 32) + 1) * divisor >> 32);
+
+    private void Resize() => Resize(ExpandPrime(_count));
+
+    private void Resize(uint newSize)
+    {
+        var array = new TypeMapping[newSize];
+
+        Array.Copy(_entries, array, _count);
+
+        _buckets = new int[newSize];
+        _fastModMultiplier = GetFastModMultiplier(newSize);
+
+        for (int j = 0; j < _count; j++)
+        {
+            if (array[j].next >= -1)
+            {
+                ref int bucket = ref GetBucket(array[j].Id);
+                array[j].next = bucket - 1;
+                bucket = j + 1;
+            }
+        }
+        _entries = array;
+    }
+
+    private static uint ExpandPrime(uint oldSize)
+    {
+        uint num = 2 * oldSize;
+        if (num > 2147483587u && 2147483587u > oldSize)
+        {
+            return 2147483587u;
+        }
+        return GetPrime(num);
+    }
+
+    internal static bool AreTypeEquals(ITypeSymbol sourceType, ITypeSymbol targetType)
+    {
+        return _comparer.Equals(sourceType, targetType);
+    }
+    #endregion
 }
+
+internal readonly record struct MapInfo(ITypeSymbol from, ITypeSymbol to, MappingKind mapKind, ApplyOn ignore);
+
+internal readonly record struct CompilationAndAssemblies(Compilation Compilation, ImmutableArray<MapInfo> OverClass, ImmutableArray<MapInfo> Assembly);
