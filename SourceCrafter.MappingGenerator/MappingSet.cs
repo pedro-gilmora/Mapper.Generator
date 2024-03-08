@@ -49,8 +49,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             sourceId = GetId(sourceType);
 
         Member
-            target = new(++targetScopeId, "to", targetId, targetType.IsNullable()),
-            source = new(--sourceScopeId, "source", sourceId, sourceType.IsNullable());
+            target = new(++targetScopeId, "to", targetType.IsNullable()),
+            source = new(--sourceScopeId, "source", sourceType.IsNullable());
 
         var typeMappingInfo = GetOrAddMapper(
             targetType.AsNonNullable(),
@@ -79,6 +79,10 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         string sourceMappingPath
     )
     {
+        map.EnsureDirection(ref target, ref source);
+
+        GetNullability(target, map.TargetType._typeSymbol, source, map.SourceType._typeSymbol);
+
         if (map.CanMap is not null)
         {
             if(!map.TargetType.IsRecursive && !map.TargetType.IsStruct && !map.TargetType.IsPrimitive)
@@ -90,18 +94,14 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             return map;
         }
 
-        map.EnsureDirection(ref target, ref source);
-
-        GetNullability(ref target, map.TargetType._typeSymbol, ref source, map.SourceType._typeSymbol);
-
         if (IsCollection(ref map, out var targetCollInfo, out var sourceCollInfo, out var ltrInfo, out var rtlInfo))
         {
             int targetItemId = GetId(targetCollInfo.TypeSymbol),
                 sourceItemId = GetId(sourceCollInfo.TypeSymbol);
 
             Member
-                targetItem = new(target.Id, target.Name + "Item", targetItemId, targetCollInfo.IsItemNullable),
-                sourceItem = new(source.Id, source.Name + "Item", sourceItemId, sourceCollInfo.IsItemNullable);
+                targetItem = new(target.Id, target.Name + "Item", targetCollInfo.IsItemNullable),
+                sourceItem = new(source.Id, source.Name + "Item", sourceCollInfo.IsItemNullable);
 
             var itemMap = GetOrAddMapper(
                 targetCollInfo.TypeSymbol.AsNonNullable(),
@@ -119,8 +119,6 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
             if (itemMap.CanMap != false)
             {
-                GetNullability(ref targetItem, targetCollInfo.TypeSymbol, ref sourceItem, sourceCollInfo.TypeSymbol);
-
                 itemMap = CreateType(
                     itemMap,
                     targetItem,
@@ -520,7 +518,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
     internal static int GetId(ITypeSymbol type)
     {
-        return _comparer.GetHashCode(type.IsNullable()
+        return _comparer.GetHashCode(type.SpecialType is SpecialType.System_Nullable_T
             ? ((INamedTypeSymbol)type).TypeArguments[0]
             : type);
     }
@@ -639,17 +637,17 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
         while (++l < lLen)
         {
-            if (IsNotMappable(targetMembers[l], out var targetMemberType, out var targetMember))
+            if (IsNotMappable(targetMembers[l], out var targetMemberType, out var targetTypeId, out var targetMember))
                 continue;
 
             while (++r < rLen)
             {
-                if (IsNotMappable(sourceMembers[r], out var sourceMemberType, out var sourceMember)
+                if (IsNotMappable(sourceMembers[r], out var sourceMemberType, out var sourceTypeId, out var sourceMember)
                     || AreNotMappableByDesign(map.TargetType.IsTupleType || map.SourceType.IsTupleType, targetMember, sourceMember))
 
                     continue;
 
-                if (mapId == GetId(targetMember.TypeId, sourceMember.TypeId))
+                if (mapId == GetId(sourceTypeId, targetTypeId))
                 {
                     targetMember.Type = targetMember.OwningType = map.TargetType;
                     sourceMember.Type = sourceMember.OwningType = map.SourceType;
@@ -717,15 +715,15 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 var memberMap = GetOrAddMapper(
                     targetMemberType,
                     sourceMemberType,
-                    targetMember.TypeId,
-                    sourceMember.TypeId);
+                    targetTypeId,
+                    sourceTypeId);
 
                 memberMap = CreateType(
                     memberMap,
                     targetMember,
                     sourceMember,
-                    mappingPath + targetMember.TypeId + "+",
-                    mappingPath + sourceMember.TypeId + "+");
+                    mappingPath + targetTypeId + "+",
+                    mappingPath + sourceTypeId + "+");
 
                 if (memberMap is { CanMap: not false })
                 {
@@ -1120,7 +1118,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         }
     }
 
-    static bool IsNotMappable(ISymbol member, out ITypeSymbol typeOut, out Member memberOut)
+    static bool IsNotMappable(ISymbol member, out ITypeSymbol typeOut, out int typeIdOut, out Member memberOut)
     {
         var isAccesible = member.DeclaredAccessibility is Accessibility.Internal or Accessibility.Public or Accessibility.ProtectedAndInternal or Accessibility.ProtectedOrInternal;
 
@@ -1135,11 +1133,11 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 IsWriteOnly: var isWriteOnly,
                 SetMethod.IsInitOnly: var isInitOnly
             }:
-                (typeOut, memberOut) = (
+                (typeOut, typeIdOut, memberOut) = (
                     type.AsNonNullable(),
+                    GetId(type),
                     new(_comparer.GetHashCode(member),
                         member.ToNameOnly(),
-                        GetId(type.AsNonNullable()),
                         type.IsNullable(),
                         isAccesible && !isWriteOnly,
                         isAccesible && !isReadonly,
@@ -1157,11 +1155,11 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 AssociatedSymbol: null,
                 IsReadOnly: var isReadonly
             }:
-                (typeOut, memberOut) =
+                (typeOut, typeIdOut, memberOut) =
                     (type.AsNonNullable(),
+                     GetId(type),
                      new(_comparer.GetHashCode(member),
                         member.ToNameOnly(),
-                        GetId(type.AsNonNullable()),
                         type.IsNullable(),
                         isAccesible,
                         isAccesible && !isReadonly,
@@ -1172,7 +1170,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 return false;
 
             default:
-                (typeOut, memberOut) = (default!, default!);
+                (typeOut, typeIdOut, memberOut) = (default!, default, default!);
 
                 return true;
         }
@@ -1390,7 +1388,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         return canWrite;
     }
 
-    static void GetNullability(ref Member target, ITypeSymbol targetType, ref Member source, ITypeSymbol sourceType)
+    static void GetNullability(Member target, ITypeSymbol targetType, Member source, ITypeSymbol sourceType)
     {
         source.DefaultBang = GetDefaultBangChar(target.IsNullable, source.IsNullable, sourceType.AllowsNull());
         source.Bang = GetBangChar(target.IsNullable, source.IsNullable);

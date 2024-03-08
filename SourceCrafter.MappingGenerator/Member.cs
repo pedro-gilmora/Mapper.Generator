@@ -7,7 +7,6 @@ namespace SourceCrafter.Bindings;
 internal sealed record Member(
     int Id,
     string Name,
-    int TypeId,
     bool IsNullable,
     bool IsReadable = true,
     bool IsWritable = true,

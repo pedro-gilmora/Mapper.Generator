@@ -108,7 +108,10 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
 
     internal void EnsureDirection(ref Member target, ref Member source)
     {
-        if ((TargetType.Id, SourceType.Id) == (source.TypeId, target.TypeId))
+        target.Type ??= TargetType;
+        source.Type ??= SourceType;
+
+        if ((TargetType.Id, SourceType.Id) == (source.Type.Id, target.Type.Id))
             (target, source) = (source, target);
     }
 
