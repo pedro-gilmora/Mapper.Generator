@@ -2,8 +2,7 @@
 
 	<PropertyGroup>
 		<TargetFramework>netstandard2.0</TargetFramework>
-		<LangVersion>latest</LangVersion>
-		<Configurations>Debug;Release;Test</Configurations>
+		<LangVersion>preview</LangVersion>
 		<PackageVersion>
 			$([System.Convert]::ToUInt16(
 				$([MSBuild]::Add(
@@ -31,11 +30,18 @@
 		<PackageIcon>logo.jpeg</PackageIcon>
 		<IsRoslynComponent>true</IsRoslynComponent>
 		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-		<Configurations>Debug;Release;Pack</Configurations>
+		<Configurations>Debug;Release;Pack;Debug SG</Configurations>
 	</PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="Builders\**" />
+	  <EmbeddedResource Remove="Builders\**" />
+	  <None Remove="Builders\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<Compile Remove="Extensions.cs" />
+		<Compile Remove="MappersGenerator.cs" />
 	</ItemGroup>
 	
 	<ItemGroup>
@@ -50,36 +56,39 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.4.0" PrivateAssets="all" GeneratePathProperty="true" />
-		<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.3" PrivateAssets="all" GeneratePathProperty="true" />
+		<!--<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.4.0" PrivateAssets="all" GeneratePathProperty="true" />
+		<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.3" PrivateAssets="all" GeneratePathProperty="true" />-->
 		<PackageReference Include="IndexRange" Version="1.0.2" PrivateAssets="all" GeneratePathProperty="true" />
+		<PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4">
+		  <PrivateAssets>all</PrivateAssets>
+		  <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.4.0" />
 		<PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="7.0.0" PrivateAssets="all" GeneratePathProperty="true" />
+		<PackageReference Include="System.Diagnostics.Tools" Version="4.3.0" />
 		<PackageReference Include="System.Memory" Version="4.5.5" PrivateAssets="all" GeneratePathProperty="true" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="SourceCrafter.Extensions" Version="0.23.149.14" GeneratePathProperty="true">
-			<ExcludeAssets Condition=" '$(Configuration)' == 'Pack'">analyzers</ExcludeAssets>
-			<PrivateAssets Condition=" '$(Configuration)' != 'Pack'">none</PrivateAssets>
-		</PackageReference>
+		<PackageReference Include="System.Runtime.InteropServices" Version="4.3.0" />
 	</ItemGroup>
 
 
-	<ItemGroup Condition=" '$(Configuration)' == 'Pack'">
+	<!--<ItemGroup Condition=" '$(Configuration)' == 'Pack'">
 		<None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-		<None Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-	</ItemGroup>
+		--><!--<None Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />--><!--
+	</ItemGroup>-->
 
 
-	<PropertyGroup Condition=" '$(Configuration)' != 'Pack' ">
+	<!--<PropertyGroup Condition=" '$(Configuration)' != 'Pack' ">
 		<GetTargetPathDependsOn>$(GetTargetPathDependsOn);GetDependencyTargetPaths</GetTargetPathDependsOn>
-	</PropertyGroup>
+	</PropertyGroup>-->
 
-	<Target Name="GetDependencyTargetPaths" Condition=" '$(Configuration)' != 'Pack' ">
+	<!--<Target Name="GetDependencyTargetPaths" Condition=" '$(Configuration)' != 'Pack' ">
 		<ItemGroup>
 			<TargetPathWithTargetPlatformMoniker Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" IncludeRuntimeDependency="true" />
 		</ItemGroup>
-	</Target>
+	</Target>-->
 
 
 </Project>
