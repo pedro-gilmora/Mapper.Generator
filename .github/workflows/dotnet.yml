@@ -28,7 +28,7 @@ jobs:
       if: github.ref_name == 'dev'
       run: |
         without_comma=$(echo "${{ github.event.head_commit.message }}" | sed 's/,/\\u002C/g')
-        dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.MappingGenerator.csproj --verbosity normal -c Pack /p:PackageReleaseNotes="$without_comma"
+        dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageReleaseNotes="$without_comma"
     
     - name: Publish to Nuget
       if: github.ref_name == 'dev'
