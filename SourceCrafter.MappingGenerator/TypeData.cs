@@ -52,9 +52,11 @@ internal sealed class TypeData
 
     internal bool IsMultiMember => IsTupleType || !(IsPrimitive || IsIterable is true);
 
-    internal ReadOnlySpan<ISymbol> Members => _typeSymbol.GetMembers().AsSpan();
+    HashSet<ISymbol>? _members;
 
-    internal ReadOnlySpan<IFieldSymbol> TupleElements => ((INamedTypeSymbol)_typeSymbol).TupleElements.AsSpan();
+    internal IEnumerable<ISymbol> Members => _members ??= GetAllMembers(_typeSymbol);
+
+    internal IEnumerable<IFieldSymbol> TupleElements => ((INamedTypeSymbol)_typeSymbol).TupleElements.AsEnumerable();
 
     internal TypeData(Compilation compilation, ITypeSymbol type, int typeId)
     {
@@ -111,6 +113,21 @@ internal sealed class TypeData
         return exists;
     }
 
+    HashSet<ISymbol> GetAllMembers(ITypeSymbol type)
+    {
+        HashSet<ISymbol> members = new(PropertyTypeEqualityComparer.Default);
+
+        while (type != null)
+        {
+            foreach (var i in type.GetMembers())
+                members.Add(i);
+
+            type = type.BaseType!;
+        }
+
+        return members;
+    }
+
     internal bool Equals(TypeData obj) => MappingSet._comparer.Equals(_typeSymbol, obj._typeSymbol);
 
     public override string ToString() => FullName;
@@ -142,6 +159,26 @@ internal sealed class TypeData
                     typeName = typeName[..^2] + "Array";
                 return char.ToUpperInvariant(typeName[0]) + typeName[1..].TrimEnd('?', '_');
         };
+    }
+
+    private class PropertyTypeEqualityComparer : IEqualityComparer<ISymbol>
+    {
+        internal static PropertyTypeEqualityComparer Default = new();
+
+        public bool Equals(ISymbol x, ISymbol y)
+        {
+            return GetKey(x) == GetKey(y);
+        }
+
+        private string GetKey(ISymbol x)
+        {
+            return MappingSet._comparer.GetHashCode(x) + "|" + x.ToNameOnly();
+        }
+
+        public int GetHashCode(ISymbol obj)
+        {
+            return GetKey(obj).GetHashCode();
+        }
     }
 }
 

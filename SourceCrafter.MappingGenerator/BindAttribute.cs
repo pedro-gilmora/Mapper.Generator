@@ -8,7 +8,7 @@ namespace SourceCrafter.Bindings.Attributes
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
     public class BindAttribute<TIn, TOut>(MappingKind kind = MappingKind.All, ApplyOn ignore = ApplyOn.None, string[] ignoreMembers = default!) : Attribute;
     
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Interface, AllowMultiple = true)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct, AllowMultiple = true)]
     public class BindAttribute<TIn>(MappingKind kind = MappingKind.All, ApplyOn ignore = ApplyOn.None, string[] ignoreMembers = default!) : Attribute;
     
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = true)]

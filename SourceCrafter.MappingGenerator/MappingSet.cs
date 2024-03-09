@@ -65,6 +65,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             typeMappingInfo,
             source,
             target,
+            ignore,
             "+",
             "+");
 
@@ -76,6 +77,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         TypeMappingInfo map,
         Member source,
         Member target,
+        ApplyOn ignore,
         string sourceMappingPath,
         string targetMappingPath)
     {
@@ -138,10 +140,12 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 itemMap,
                 sourceItem,
                 targetItem,
+                ApplyOn.None,
                 sourceMappingPath,
                 targetMappingPath);
 
-            if (itemMap.CanMap is true && map.CanMap is null && true == (map.CanMap =
+            if (itemMap.CanMap is true && map.CanMap is null && true == (map.CanMap = 
+                ignore is not ApplyOn.Target or ApplyOn.Both &&
                 (!itemMap.TargetType.IsInterface && (map.RequiresSTTCall = BuildCollection(
                     target,
                     sourceItem,
@@ -154,7 +158,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                     ref map.BuildToTargetValue,
                     ref map.BuildToTargetMethod)))
                 |
-                (!itemMap.SourceType.IsInterface && (map.RequiresTTSCall = BuildCollection(
+                (ignore is not ApplyOn.Source or ApplyOn.Both &&
+                !itemMap.SourceType.IsInterface && (map.RequiresTTSCall = BuildCollection(
                     source,
                     targetItem,
                     sourceItem,
@@ -181,7 +186,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             if (map.TargetType.HasConversionTo(map.SourceType, out var exists, out var isExplicit)
                 | map.SourceType.HasConversionTo(map.TargetType, out var reverseExists, out var isReverseExplicit))
             {
-                if (exists)
+                if (ignore is not ApplyOn.Target or ApplyOn.Both && exists)
                 {
                     var scalar = isExplicit
                         ? $@"({map.TargetType.FullName}){{0}}"
@@ -192,7 +197,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                     canMap = map.HasToTargetScalarConversion = true;
                 }
 
-                if (reverseExists)
+                if (ignore is not ApplyOn.Source or ApplyOn.Both && reverseExists)
                 {
                     var scalar = isReverseExplicit
                         ? $@"({map.SourceType.FullName}){{0}}"
@@ -215,18 +220,21 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             switch ((map.TargetType.IsTupleType, map.SourceType.IsTupleType))
             {
                 case (true, true):
-                    CreateTypeBuilders(map, sourceMappingPath, targetMappingPath, source, target, map.SourceType.TupleElements, map.TargetType.TupleElements);
+                    CreateTypeBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.TupleElements, map.TargetType.TupleElements);
                     break;
                 case (true, false):
-                    CreateTypeBuilders(map, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.TupleElements);
+                    CreateTypeBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.TupleElements);
                     break;
                 case (false, true):
-                    CreateTypeBuilders(map, sourceMappingPath, targetMappingPath, source, target, map.SourceType.TupleElements, map.TargetType.Members);
+                    CreateTypeBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.TupleElements, map.TargetType.Members);
                     break;
                 default:
-                    CreateTypeBuilders(map, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.Members);
+                    CreateTypeBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.Members);
                     break;
             }
+
+
+
         }
     exit:
         return map;
@@ -568,12 +576,13 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     private void CreateTypeBuilders<TTarget, TSource>
     (
         TypeMappingInfo map,
+        ApplyOn ignore,
         string sourceMappingPath,
         string targetMappingPath,
         Member source,
         Member target,
-        ReadOnlySpan<TSource> sourceMembers,
-        ReadOnlySpan<TTarget> targetMembers
+        IEnumerable<TSource> sourceMembers,
+        IEnumerable<TTarget> targetMembers
     )
     where TTarget : ISymbol
     where TSource : ISymbol
@@ -601,12 +610,6 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             sttComma = null,
             ttsComma = null;
 
-        int
-            l = -1,
-            r = -1,
-            lLen = targetMembers.Length,
-            rLen = sourceMembers.Length;
-
         uint mapId = map.Id;
 
         bool
@@ -614,8 +617,10 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             hasComplexTTSMembers = false,
             hasComplexSTTMembers = false,
             isSTTRecursive = false,
-            isTTSRecursive = false;
-
+            isTTSRecursive = false,
+            parentIgnoreTarget = ignore is ApplyOn.Target or ApplyOn.Both,
+            parentIgnoreSource = ignore is ApplyOn.Source or ApplyOn.Both;
+        
         if(map.BuildToTargetValue is null || !map.TargetType.IsValueType)
         {
             map.RequiresSTTCall = true;
@@ -695,14 +700,14 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
         var allowLowerCase = map.TargetType.IsTupleType || map.SourceType.IsTupleType;
 
-        while (++l < lLen)
+        foreach(var targetItem in targetMembers)
         {
-            if (IsNotMappable(targetMembers[l], out var targetMemberType, out var targetTypeId, out var targetMember))
+            if (IsNotMappable(targetItem, out var targetMemberType, out var targetTypeId, out var targetMember))
                 continue;
 
-            while (++r < rLen)
+            foreach (var sourceItem in sourceMembers)
             {
-                if (IsNotMappable(sourceMembers[r], out var sourceMemberType, out var sourceTypeId, out var sourceMember)
+                if (IsNotMappable(sourceItem, out var sourceMemberType, out var sourceTypeId, out var sourceMember)
                     || AreNotMappableByDesign(allowLowerCase, sourceMember, targetMember, out var ignoreSource, out var ignoreTarget))
 
                     continue;
@@ -712,7 +717,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                     targetMember.Type = targetMember.OwningType = map.TargetType;
                     sourceMember.Type = sourceMember.OwningType = map.SourceType;
 
-                    if (!map.TargetType.IsInterface && !ignoreTarget)
+                    if (!(parentIgnoreTarget || ignoreTarget || map.TargetType.IsInterface))
                     {
                         map.STTMemberCount++;
 
@@ -741,7 +746,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                         };
                     }
 
-                    if (!toSameType && !map.SourceType.IsInterface && !ignoreSource)
+                    if (!(toSameType && parentIgnoreSource || ignoreSource || map.SourceType.IsInterface))
                     {
                         map.TTSMemberCount++;
 
@@ -784,6 +789,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                     memberMap,
                     sourceMember,
                     targetMember,
+                    ApplyOn.None,
                     sourceMappingPath,
                     targetMappingPath);
 
@@ -792,7 +798,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                     targetMember.OwningType = map.TargetType;
                     sourceMember.OwningType = map.SourceType;
 
-                    if (!map.TargetType.IsInterface && !ignoreTarget)
+                    if (!(parentIgnoreTarget || ignoreTarget || map.TargetType.IsInterface))
                     {
                         map.STTMemberCount++;
 
@@ -824,7 +830,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                         };
                     }
 
-                    if (!toSameType && !map.SourceType.IsInterface && !ignoreSource)
+                    if (!(toSameType || parentIgnoreSource || ignoreSource || map.SourceType.IsInterface))
                     {
                         map.TTSMemberCount++;
 
@@ -868,8 +874,6 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                     break;
                 }
             }
-
-            r = -1;
         }
 
         if (!map.HasSourceToTargetMap)        

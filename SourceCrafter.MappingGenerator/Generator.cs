@@ -14,7 +14,7 @@ using System.Collections.Generic;
 namespace SourceCrafter.Bindings;
 
 [Generator]
-internal class Generator : IIncrementalGenerator
+public class Generator : IIncrementalGenerator
 {
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
@@ -25,7 +25,7 @@ internal class Generator : IIncrementalGenerator
 #endif
             var d = FindMapperAttributes(context,
                 "SourceCrafter.Bindings.Attributes.BindAttribute`1",
-                static n => n is ClassDeclarationSyntax { Modifiers: { } } or InterfaceDeclarationSyntax,
+                static n => n is ClassDeclarationSyntax { Modifiers: { } },
                 static (targetSymbol, model, attr) => new MapInfo(
                     (ITypeSymbol)targetSymbol,
                     attr.AttributeClass!.TypeArguments[0],
@@ -36,7 +36,7 @@ internal class Generator : IIncrementalGenerator
                     FindMapperAttributes(
                         context,
                         "SourceCrafter.Bindings.Attributes.BindAttribute`2",
-                        static n => true,
+                        static n => n is CompilationUnitSyntax or InterfaceDeclarationSyntax,
                         static (_, model, attr) => new MapInfo(
                             attr.AttributeClass!.TypeArguments[0],
                             attr.AttributeClass!.TypeArguments[1],

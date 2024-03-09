@@ -74,10 +74,10 @@
 	</ItemGroup>
 
 
-	<!--<ItemGroup Condition=" '$(Configuration)' == 'Pack'">
+	<ItemGroup Condition=" '$(Configuration)' == 'Pack'">
 		<None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
-		--><!--<None Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />--><!--
-	</ItemGroup>-->
+		<!--<None Include="$(PKGSourceCrafter_Extensions)\lib\netstandard2.0\SourceCrafter.Extensions.dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />-->
+	</ItemGroup>
 
 
 	<!--<PropertyGroup Condition=" '$(Configuration)' != 'Pack' ">
