@@ -29,9 +29,9 @@ public partial class User //: IUser
     public double Balance { get; set; }
     [Max(2)]
     public User[] Asignees { get; set; } = [];
-    public Role? MainRole { get; set; }
+    public Role MainRole { get; set; }
     public User? Supervisor { get; init; }
-    public string[] Phrases { get; set; } = Array.Empty<string>();
+    public string[] Phrases { get; set; } = [];
 }
 
 

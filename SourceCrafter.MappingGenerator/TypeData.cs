@@ -17,20 +17,23 @@ namespace SourceCrafter.Bindings;
 
 internal sealed class TypeData
 {
-    //internal static readonly SymbolEqualityComparer _comparer = SymbolEqualityComparer.IncludeNullability;
-
     internal readonly int Id;
 
     internal readonly string
         FullName,
         NotNullFullName,
-        NonGenericFullName;
+        NonGenericFullName, 
+        Sanitized;
 
     private readonly Compilation _compilation;
 
     internal readonly ITypeSymbol _typeSymbol;
 
-    internal readonly string Sanitized;
+    internal CollectionInfo CollectionInfo = null!;
+
+    internal CodeRenderer? NullableMethodUnsafeAccessor;
+
+    public HashSet<PropertyCodeRenderer> UnsafePropertyFieldsGetters = new(new PropertyCodeEqualityComparer());
 
     internal readonly bool
         //IsNullable,
@@ -45,19 +48,13 @@ internal sealed class TypeData
 
     internal bool? IsIterable;
 
-    internal CollectionInfo CollectionInfo;
+    internal bool IsRecursive;
 
     internal bool IsMultiMember => IsTupleType || !(IsPrimitive || IsIterable is true);
-
-    internal bool IsRecursive;
 
     internal ReadOnlySpan<ISymbol> Members => _typeSymbol.GetMembers().AsSpan();
 
     internal ReadOnlySpan<IFieldSymbol> TupleElements => ((INamedTypeSymbol)_typeSymbol).TupleElements.AsSpan();
-
-    internal CodeRenderer? NullableMethodUnsafeAccessor;
-
-    public HashSet<PropertyCodeRenderer> UnsafePropertyFieldsGetters = new(new PropertyCodeEqualityComparer());
 
     internal TypeData(Compilation compilation, ITypeSymbol type, int typeId)
     {

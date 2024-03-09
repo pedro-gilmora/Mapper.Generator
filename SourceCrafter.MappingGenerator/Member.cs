@@ -15,15 +15,15 @@ internal sealed record Member(
     bool CanMap = true,
     bool IsProperty = false)
 {
-    internal string? DefaultBang { get; set; }
+    internal string?
+        DefaultBang,
+        Bang;
 
-    internal string? Bang { get; set; }
+    internal short MaxDepth = 1;
 
-    internal bool Ignore { get; set; }
+    internal TypeData Type = null!;
 
-    internal short MaxDepth { get; set; } = 1;
-    internal TypeData Type { get; set; } = null!;
-    internal TypeData? OwningType { get; set; }
+    internal TypeData? OwningType;
 
     internal bool MaxDepthReached(string s)
     {

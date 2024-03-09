@@ -86,10 +86,10 @@ public static partial class MappingsExtensions
         Action? buildAll = null;
 
         foreach (var gctx in Assembly)
-            buildAll += set.AddMapper(gctx.to, gctx.from, gctx.ignore, gctx.mapKind);
+            buildAll += set.AddMapper(gctx.from, gctx.to, gctx.ignore, gctx.mapKind);
 
         foreach (var gctx in classAttributes)
-            buildAll += set.AddMapper(gctx.to, gctx.from, gctx.ignore, gctx.mapKind);
+            buildAll += set.AddMapper(gctx.from, gctx.to, gctx.ignore, gctx.mapKind);
 
         buildAll?.Invoke();
     }

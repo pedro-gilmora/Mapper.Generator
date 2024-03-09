@@ -18,7 +18,7 @@ internal struct TypeMapping(uint id, int _next, TypeMappingInfo info)
 internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool sameType = false)
 #pragma warning restore CS8618
 {
-    internal Func<string, string>
+    internal ValueBuilder
         BuildToTargetValue = default!,
         BuildToSourceValue = default!;
 
@@ -58,28 +58,36 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
         IsScalar = target.IsPrimitive && source.IsPrimitive;
 
     internal readonly bool CanDepth = !target.IsPrimitive && !source.IsPrimitive
-        && (target._typeSymbol.TypeKind, source._typeSymbol.TypeKind) is not (TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown, TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown);
-
-    internal readonly bool
+            && (target._typeSymbol.TypeKind, source._typeSymbol.TypeKind) is not (TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown, TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown),
         IsTupleFromClass = target.IsTupleType && source is { IsPrimitive: false, IsIterable: false },
         IsReverseTupleFromClass = source.IsTupleType && target is { IsPrimitive: false, IsIterable: false };
 
 
-    internal bool? CanMap { get; set; }
-    internal bool? IsCollection { get; set; }
+    internal bool? CanMap, IsCollection;
 
-    internal TypeData TargetType { get; } = target;
-    internal TypeData SourceType { get; } = source;
+    internal readonly TypeData TargetType = target, SourceType = source;
 
-    internal CollectionMapping LTRCollection { get; set; }
-    internal CollectionMapping RTLCollection { get; set; }
-    internal uint ItemMapId { get; set; }
-    internal bool AddTTSTryGet { get; set; }
-    internal bool AddSTTTryGet { get; set; }
-    internal bool HasToTargetScalarConversion { get; set; }
-    internal bool HasToSourceScalarConversion { get; set; }
+    internal CollectionMapping TTSCollection, STTCollection;
+
+    internal uint ItemMapId;
+
+    internal bool
+        AddTTSTryGet,
+        AddSTTTryGet,
+        HasToTargetScalarConversion,
+        HasToSourceScalarConversion,
+        JustFill,
+        RequiresSTTCall,
+        RequiresTTSCall,
+        RenderedSTTDefaultMethod, RenderedSTTTryGetMethod, RenderedSTTFillMethod,
+        RenderedTTSDefaultMethod, RenderedTTSTryGetMethod, RenderedTTSFillMethod;
+
+
+    internal bool IsSTTRendered => RenderedSTTDefaultMethod && RenderedSTTTryGetMethod && RenderedSTTFillMethod;
+    internal bool IsTTSRendered => RenderedTTSDefaultMethod && RenderedTTSTryGetMethod && RenderedTTSFillMethod;
+
+
     internal MappingKind MappingsKind { get; set; }
-    internal bool JustFill { get; set; }
 
     internal int STTMemberCount, TTSMemberCount;
 
@@ -132,7 +140,7 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
 }
 
 
-record struct CollectionInfo(
+sealed record CollectionInfo(
     ITypeSymbol TypeSymbol,
     EnumerableType Type,
     bool IsItemNullable,
@@ -143,8 +151,7 @@ record struct CollectionInfo(
     string? Method,
     string CountProp)
 {
-    internal TypeData ItemDataType { get; set; }
-    internal TypeData DataType { get; set; }
+    internal TypeData ItemDataType = null!, DataType = null!;
 }
 
 record struct CollectionMapping(bool CreateArray, bool UseLenInsteadOfIndex, string Iterator, bool Redim, string? Method, string ToTargetMethodName);

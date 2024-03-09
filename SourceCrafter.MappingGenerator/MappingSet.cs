@@ -14,8 +14,10 @@ using SourceCrafter.Bindings.Helpers;
 
 namespace SourceCrafter.MappingGenerator;
 
+internal delegate string ValueBuilder(string val);
+
 delegate string BuildMember(
-    Func<string, string> createType,
+    ValueBuilder createType,
     TypeData targetType,
     Member targetMember,
     TypeData sourceType,
@@ -40,11 +42,10 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     static readonly EqualityComparer<uint> _uintComparer = EqualityComparer<uint>.Default;
 
     internal static readonly SymbolEqualityComparer
-        _comparer = SymbolEqualityComparer.IncludeNullability;
+        _comparer = SymbolEqualityComparer.Default;
 
-    internal Action AddMapper(ITypeSymbol targetType, ITypeSymbol sourceType, ApplyOn ignore, MappingKind mapKind)
+    internal Action AddMapper(ITypeSymbol sourceType, ITypeSymbol targetType, ApplyOn ignore, MappingKind mapKind)
     {
-
         int targetId = GetId(targetType),
             sourceId = GetId(sourceType);
 
@@ -62,10 +63,10 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
         typeMappingInfo = CreateType(
             typeMappingInfo,
-            target,
             source,
-            "+" + typeMappingInfo.TargetType.Id + "+",
-            "+" + typeMappingInfo.SourceType.Id + "+");
+            target,
+            "+",
+            "+");
 
         return typeMappingInfo.BuildMethods;
     }
@@ -73,11 +74,10 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     TypeMappingInfo CreateType
     (
         TypeMappingInfo map,
-        Member target,
         Member source,
-        string targetMappingPath,
-        string sourceMappingPath
-    )
+        Member target,
+        string sourceMappingPath,
+        string targetMappingPath)
     {
         map.EnsureDirection(ref target, ref source);
 
@@ -85,11 +85,13 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
         if (map.CanMap is not null)
         {
-            if(!map.TargetType.IsRecursive && !map.TargetType.IsStruct && !map.TargetType.IsPrimitive)
-                map.TargetType.IsRecursive = IsRecursive(targetMappingPath, map.TargetType.Id);
+            if (!map.TargetType.IsRecursive && !map.TargetType.IsStruct && !map.TargetType.IsPrimitive)
+                map.TargetType.IsRecursive = IsRecursive(targetMappingPath + map.TargetType.Id + "+", map.TargetType.Id);
 
-            if(!map.SourceType.IsRecursive && !map.SourceType.IsStruct && !map.SourceType.IsPrimitive)
-                map.SourceType.IsRecursive = map.AreSameType ? map.TargetType.IsRecursive : IsRecursive(sourceMappingPath, map.SourceType.Id);
+            if (!map.SourceType.IsRecursive && !map.SourceType.IsStruct && !map.SourceType.IsPrimitive)
+                map.SourceType.IsRecursive = map.AreSameType
+                    ? map.TargetType.IsRecursive
+                    : IsRecursive(sourceMappingPath + map.SourceType.Id + "+", map.SourceType.Id);
            
             return map;
         }
@@ -111,62 +113,61 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
             map.ItemMapId = itemMap.Id;
 
-            if (itemMap.CanMap is not true)
+            map.TargetType.IsRecursive |= itemMap.TargetType.IsRecursive;
+            map.SourceType.IsRecursive |= itemMap.SourceType.IsRecursive;
+
+            if (targetItem.IsNullable)
+                itemMap.AddTTSTryGet = true;
+
+            if (sourceItem.IsNullable)
+                itemMap.AddSTTTryGet = true;
+
+            targetCollInfo.DataType = map.TargetType;
+            sourceCollInfo.DataType = map.SourceType;
+            targetCollInfo.ItemDataType = itemMap.TargetType;
+            sourceCollInfo.ItemDataType = itemMap.SourceType;
+
+            if (itemMap.CanMap is false)
             {
                 map.CanMap = map.IsCollection = false;
+
                 return map;
             }
 
-            if (itemMap.CanMap != false)
-            {
-                itemMap = CreateType(
-                    itemMap,
+            itemMap = CreateType(
+                itemMap,
+                sourceItem,
+                targetItem,
+                sourceMappingPath,
+                targetMappingPath);
+
+            if (itemMap.CanMap is true && map.CanMap is null && true == (map.CanMap =
+                (!itemMap.TargetType.IsInterface && (map.RequiresSTTCall = BuildCollection(
+                    target,
+                    sourceItem,
+                    targetItem,
+                    map.RequiresSTTCall,
+                    sourceCollInfo,
+                    targetCollInfo,
+                    rtlInfo,
+                    itemMap.BuildToTargetValue,
+                    ref map.BuildToTargetValue,
+                    ref map.BuildToTargetMethod)))
+                |
+                (!itemMap.SourceType.IsInterface && (map.RequiresTTSCall = BuildCollection(
+                    source,
                     targetItem,
                     sourceItem,
-                    targetMappingPath + itemMap.TargetType.Id + "+",
-                    sourceMappingPath + itemMap.SourceType.Id + "+");
-
-                map.TargetType.IsRecursive |= itemMap.TargetType.IsRecursive;
-                map.SourceType.IsRecursive |= itemMap.SourceType.IsRecursive;
-
-                if (targetItem.IsNullable)
-                    itemMap.AddTTSTryGet = true;
-
-                if (sourceItem.IsNullable)
-                    itemMap.AddSTTTryGet = true;
-
-                targetCollInfo.DataType = map.TargetType;
-                sourceCollInfo.DataType = map.SourceType;
-                targetCollInfo.ItemDataType = itemMap.TargetType;
-                sourceCollInfo.ItemDataType = itemMap.SourceType;
-
-                if (true == (map.CanMap =
-                    (!itemMap.TargetType.IsInterface && BuildCollection(
-                        target,
-                        sourceItem,
-                        targetItem,
-                        map.TargetType.IsRecursive,
-                        sourceCollInfo,
-                        targetCollInfo,
-                        rtlInfo,
-                        itemMap.BuildToTargetValue,
-                        ref map.BuildToTargetValue,
-                        ref map.BuildToTargetMethod))
-                    |
-                    (!itemMap.TargetType.IsInterface && BuildCollection(
-                        source,
-                        targetItem,
-                        sourceItem,
-                        map.SourceType.IsRecursive,
-                        targetCollInfo,
-                        sourceCollInfo,
-                        ltrInfo,
-                        itemMap.BuildToSourceValue,
-                        ref map.BuildToSourceValue,
-                        ref map.BuildToSourceMethod))))
-                {
-                    map.AuxiliarMappings += itemMap.BuildMethods;
-                }
+                    map.RequiresTTSCall,
+                    targetCollInfo,
+                    sourceCollInfo,
+                    ltrInfo,
+                    itemMap.BuildToSourceValue,
+                    ref map.BuildToSourceValue,
+                    ref map.BuildToSourceMethod))))
+            )
+            {
+                map.AuxiliarMappings += itemMap.BuildMethods;
             }
             else
             {
@@ -176,14 +177,15 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         else
         {
             var canMap = false;
+
             if (map.TargetType.HasConversionTo(map.SourceType, out var exists, out var isExplicit)
                 | map.SourceType.HasConversionTo(map.TargetType, out var reverseExists, out var isReverseExplicit))
             {
                 if (exists)
                 {
                     var scalar = isExplicit
-                        ? $@"({map.TargetType.FullName}){{0}}{source.Bang}"
-                        : $@"{{0}}{source.Bang}";
+                        ? $@"({map.TargetType.FullName}){{0}}"
+                        : $@"{{0}}";
 
                     map.BuildToTargetValue = value => scalar.Replace("{0}", value);
 
@@ -192,9 +194,9 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
                 if (reverseExists)
                 {
-                    var scalar = isExplicit
-                        ? $@"({map.SourceType.FullName}){{0}}{target.Bang}"
-                        : $@"{{0}}{target.Bang}";
+                    var scalar = isReverseExplicit
+                        ? $@"({map.SourceType.FullName}){{0}}"
+                        : $@"{{0}}";
 
                     map.BuildToSourceValue = value => scalar.Replace("{0}", value);
 
@@ -213,16 +215,16 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             switch ((map.TargetType.IsTupleType, map.SourceType.IsTupleType))
             {
                 case (true, true):
-                    CreateTypeBuilders(map, targetMappingPath, target, source, map.TargetType.TupleElements, map.SourceType.TupleElements);
+                    CreateTypeBuilders(map, sourceMappingPath, targetMappingPath, source, target, map.SourceType.TupleElements, map.TargetType.TupleElements);
                     break;
                 case (true, false):
-                    CreateTypeBuilders(map, targetMappingPath, target, source, map.TargetType.TupleElements, map.SourceType.Members);
+                    CreateTypeBuilders(map, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.TupleElements);
                     break;
                 case (false, true):
-                    CreateTypeBuilders(map, targetMappingPath, target, source, map.TargetType.Members, map.SourceType.TupleElements);
+                    CreateTypeBuilders(map, sourceMappingPath, targetMappingPath, source, target, map.SourceType.TupleElements, map.TargetType.Members);
                     break;
                 default:
-                    CreateTypeBuilders(map, targetMappingPath, target, source, map.TargetType.Members, map.SourceType.Members);
+                    CreateTypeBuilders(map, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.Members);
                     break;
             }
         }
@@ -259,12 +261,12 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         Member target,
         Member sourceItem,
         Member targetItem,
-        bool isRecursive,
+        bool call,
         CollectionInfo sourceCollInfo,
         CollectionInfo targetCollInfo,
         CollectionMapping ltrInfo,
-        Func<string, string> itemValueCreator,
-        ref Func<string, string> valueCreator,
+        ValueBuilder itemValueCreator,
+        ref ValueBuilder valueCreator,
         ref Action? methodCreator)
     {
         string
@@ -276,9 +278,11 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
         bool IsRecursive(out int maxDepth)
         {
+            var isRecursive = targetCollInfo.ItemDataType.IsRecursive;
+
             maxDepth = target.MaxDepth;
 
-            if (isRecursive && target.MaxDepth == 0)
+            if (targetCollInfo.ItemDataType.IsRecursive && target.MaxDepth == 0)
                 maxDepth = target.MaxDepth = 1;
 
             return isRecursive;
@@ -288,18 +292,18 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         {
             string underlyingCollectionType = $"global::System.Collections.Generic.List<{targetItemFullTypeName}>()";
 
-            (string defaultType, string initType, Func<string, string> returnExpr) = (targetCollInfo.Type, targetCollInfo.DataType.IsInterface) switch
+            (string defaultType, string initType, ValueBuilder returnExpr) = (targetCollInfo.Type, targetCollInfo.DataType.IsInterface) switch
             {
                 (EnumerableType.ReadOnlyCollection, true) =>
                     ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, v => $"new global::System.Collections.ObjectModel.ReadOnlyCollection<{targetItemFullTypeName}>({v})"),
                 (EnumerableType.Collection, true) =>
                     ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyCollection", underlyingCollectionType, v => v),
                 _ =>
-                    ("new " + targetFullTypeName + "()", targetFullTypeName + "()", new Func<string, string>(v => v))
+                    ("new " + targetFullTypeName + "()", targetFullTypeName + "()", new ValueBuilder(v => v))
             };
 
             //User? <== UserDto?
-            var checkNull = (!targetItem.IsNullable || !targetCollInfo.ItemDataType.IsPrimitive) && sourceItem.IsNullable;
+            var checkNull = (!targetItem.IsNullable || !targetCollInfo.ItemDataType.IsStruct) && sourceItem.IsNullable;
 
             string? suffix = (sourceCollInfo.Type, targetCollInfo.Type) is (not EnumerableType.Array, EnumerableType.ReadOnlySpan) ? ".AsSpan()" : null,
                 sourceBang = sourceItem.Bang,
@@ -309,10 +313,10 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     /// <summary>
     /// Creates a new instance of <see cref=""{targetFullTypeName}""/> based from a given <see cref=""{sourceFullTypeName}""/>
     /// </summary>
-    /// <param name=""input"">Data source to be mappped</param>{(isRecursive ? $@"
+    /// <param name=""input"">Data source to be mappped</param>{(targetCollInfo.ItemDataType.IsRecursive ? $@"
     /// <param name=""depth"">Depth index for recursivity control</param>
     /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
-    public static {targetFullTypeName} {methodName}(this {sourceFullTypeName} input{(isRecursive ? $@", int depth = 0, int maxDepth = {target.MaxDepth})
+    public static {targetFullTypeName} {methodName}(this {sourceFullTypeName} input{(targetCollInfo.ItemDataType.IsRecursive ? $@", int depth = 0, int maxDepth = {target.MaxDepth})
     {{
         if (depth >= maxDepth) 
             return {(ltrInfo.CreateArray
@@ -335,7 +339,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 method += $@"
         for (int i = 0; i < len; i++)
         {{
-            output[i] = {GenerateValue("input[i]", itemValueCreator, checkNull, sourceBang, defaultSourceBang)};
+            output[i] = {GenerateValue("input[i]", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)};
         }}
 
         return output{suffix};
@@ -350,7 +354,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 if (ltrInfo.CreateArray)
                 {
                     method += $@"
-            output[len{(ltrInfo.Redim ? null : "++")}] = {GenerateValue("item", itemValueCreator, checkNull, sourceBang, defaultSourceBang)};";
+            output[len{(ltrInfo.Redim ? null : "++")}] = {GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)};";
                     method += ltrInfo.Redim
                         //redim array
                         ? $@"
@@ -372,7 +376,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 else
                 {
                     method += $@"
-            output.{ltrInfo.Method}({GenerateValue("item", itemValueCreator, checkNull, sourceBang, defaultSourceBang)});
+            output.{ltrInfo.Method}({GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)});
         }}
 
         return {returnExpr("output")};
@@ -388,14 +392,14 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         {
             string underlyingCollectionType = $"global::System.Collections.Generic.List<{targetItemFullTypeName}>()";
 
-            (string defaultType, string initType, Func<string, string> returnExpr) = (targetCollInfo.Type, targetCollInfo.DataType.IsInterface) switch
+            (string defaultType, string initType, ValueBuilder returnExpr) = (targetCollInfo.Type, targetCollInfo.DataType.IsInterface) switch
             {
                 (EnumerableType.ReadOnlyCollection, true) =>
                     ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, v => $"new global::System.Collections.ObjectModel.ReadOnlyCollection<{targetItemFullTypeName}>({v})"),
                 (EnumerableType.Collection, true) =>
                     ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyCollection", underlyingCollectionType, v => v),
                 _ =>
-                    ("new " + targetFullTypeName + "()", targetFullTypeName + "()", new Func<string, string>(v => v))
+                    ("new " + targetFullTypeName + "()", targetFullTypeName + "()", new ValueBuilder(v => v))
             };
 
             var checkNull = sourceItem.IsNullable;
@@ -493,32 +497,70 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     static string GenerateValue
     (
         string item,
-        Func<string, string> generateValue,
+        ValueBuilder generateValue,
         bool checkNull,
+        bool call,
+        bool isValueType,
         string? sourceBang,
         string? defaultSourceBang
     )
-    {
-        var shouldCache = (item.Contains('[') || item.Contains('.'));
-        var itemCache = item;
-        var indexPos = item.IndexOf("[");
-
-        var value = (generateValue == null, checkNull && shouldCache) switch
-        {
-            (false, true) => generateValue!(itemCache = "_" + (indexPos > -1 ? item[..item.IndexOf("[")] : item).Replace(".", "")),
-            (false, false) => generateValue!(item),
-            (true, true) => itemCache = "_" + (indexPos > -1 ? item[..item.IndexOf("[")] : item).Replace(".", ""),
-            _ => item
-        };
+    {;
+        var indexerBracketPos = item.IndexOf('[');
+        bool hasIndexer = indexerBracketPos > -1,
+            shouldCache = checkNull && call && (hasIndexer || item.Contains('.'));
+        var itemCache = shouldCache
+            ? (hasIndexer ? "_" + item[..indexerBracketPos] : item).Replace(".", "")
+            : item;
 
         return checkNull
-            ? $"{item} is {{}}{(shouldCache ? " " + itemCache : null)} ? {value} : default{defaultSourceBang}"
-            : value + sourceBang;
+            ? call
+              ? $"{item} is {{}} {itemCache} ? {generateValue(itemCache)} : default{defaultSourceBang}"
+              : isValueType && defaultSourceBang != null 
+                ? buildNullCoalesceDefault(generateValue(itemCache)+" ?? default!")
+                : generateValue(itemCache) + sourceBang
+            : generateValue(item) + sourceBang;
+
+        string buildNullCoalesceDefault(string value)
+        {
+            return value[0] == '('
+                ? value.Replace(item, "(" + item) + ")"
+                : value;
+        }
+
+        //return (generateValue != null, indexPos > -1, isValueType, call, checkNull, shouldCache) switch
+        //{
+        //    (true, true, _, true, true, true)
+        //        => "{0} is {{}} {1} ? {2} : {3}"
+        //            .Replace("{0}", item)
+        //            .Replace("{1}", itemCache = "_" + item[..indexPos])
+        //            .Replace("{2}", generateValue!(itemCache))
+        //            .Replace("{3}", "default" + defaultSourceBang),
+        //    (true, _, _, true, false, true)
+        //        => "{0} is {{}} {1} ? {2} : {3}"
+        //            .Replace("{0}", item)
+        //            .Replace("{1}", itemCache = "_" + item.Replace(".", ""))
+        //            .Replace("{2}", generateValue!(itemCache))
+        //            .Replace("{3}", "default" + defaultSourceBang),
+        //    //(false, true) => generateValue!(itemCache = "_" + (indexPos > -1 ? item[..item.IndexOf("[")] : item).Replace(".", "")),
+        //    //(false, false) => generateValue!(item),
+        //    //(true, true) => itemCache = "_" + (indexPos > -1 ? item[..item.IndexOf("[")] : item).Replace(".", ""),
+        //    _ => item //
+        //};
+
+        //return checkNull
+        //    ?// call  ?
+        //    (!call && isValueType && defaultSourceBang != null
+        //        ? $"{item} ?? default{defaultSourceBang}"
+        //        : $"{item} is {{}}{(shouldCache ? " " + itemCache : null)} ? {value} : default{defaultSourceBang}")
+        //    //: isValueType && defaultSourceBang != null
+        //            //? $"{item} ?? default{defaultSourceBang}"
+        //            //: value + sourceBang
+        //    : value + sourceBang;
     }
 
     internal static int GetId(ITypeSymbol type)
     {
-        return _comparer.GetHashCode(type.SpecialType is SpecialType.System_Nullable_T
+        return _comparer.GetHashCode(type.Name == "Nullable"
             ? ((INamedTypeSymbol)type).TypeArguments[0]
             : type);
     }
@@ -526,11 +568,12 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     private void CreateTypeBuilders<TTarget, TSource>
     (
         TypeMappingInfo map,
-        string mappingPath,
-        Member target,
+        string sourceMappingPath,
+        string targetMappingPath,
         Member source,
-        ReadOnlySpan<TTarget> targetMembers,
-        ReadOnlySpan<TSource> sourceMembers
+        Member target,
+        ReadOnlySpan<TSource> sourceMembers,
+        ReadOnlySpan<TTarget> targetMembers
     )
     where TTarget : ISymbol
     where TSource : ISymbol
@@ -568,61 +611,71 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
         bool
             toSameType = map.AreSameType,
-            ttsCalled = false,
-            sttCalled = false,
             hasComplexTTSMembers = false,
             hasComplexSTTMembers = false,
             isSTTRecursive = false,
             isTTSRecursive = false;
 
         if(map.BuildToTargetValue is null || !map.TargetType.IsValueType)
+        {
+            map.RequiresSTTCall = true;
             map.BuildToTargetValue = val => map.ToTargetMethodName + "(" + val + (isSTTRecursive ? ", depth + 1" + (source.MaxDepth > 1 ? ", " + source.MaxDepth : null) : null) + ")";
+        }
 
         map.BuildToTargetMethod = () =>
         {
-            if (sttCalled)
+            if (map.IsSTTRendered)
                 return;
-
-            sttCalled = true;
 
             var maxDepth = target.MaxDepth;
 
             if (isSTTRecursive && target.MaxDepth == 0)
                 maxDepth = target.MaxDepth = 1;
 
-            CreateDefaultMethod(isSTTRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceFullTypeName, targetFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+            map.RenderedSTTDefaultMethod = true;
 
+            CreateDefaultMethod(isSTTRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceFullTypeName, targetFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+            
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
+                map.RenderedSTTFillMethod = true;
+
                 CreateFillMethod(isSTTRecursive, maxDepth, map.TargetType.IsValueType, map.FillTargetFromSourceMethodName, targetFullTypeName, sourceFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
 
                 foreach (var item in map.TargetType.UnsafePropertyFieldsGetters)
                     item.Render(code);
             }
 
-            if(map.AddSTTTryGet)
+            if (map.AddSTTTryGet)
+            {
+                map.RenderedSTTTryGetMethod = true;
+
                 CreateTryGetMethod(isSTTRecursive, maxDepth, toSameType, map.TryGetTargetMethodName, map.ToTargetMethodName, map.SourceType.FullName, map.TargetType.FullName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
-            
-            map.BuildToTargetMethod = null;
+            }
         };
 
         if (map.BuildToSourceValue is null || !map.SourceType.IsValueType)
+        {
+            map.RequiresTTSCall = true;
             map.BuildToSourceValue = val => map.ToSourceMethodName + "(" + val + (isTTSRecursive ? ", depth + 1" + (target.MaxDepth > 1 ? ", " + target.MaxDepth : null) : null) + ")";
+        }
 
         map.BuildToSourceMethod = () =>
         {
-            if (ttsCalled)
+            if (map.IsTTSRendered)
                 return;
-
-            ttsCalled = true;
 
             if (isTTSRecursive && source.MaxDepth == 0)
                 source.MaxDepth = 1;
+
+            map.RenderedTTSDefaultMethod = true;
 
             CreateDefaultMethod(isTTSRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetFullTypeName, sourceFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
+                map.RenderedTTSFillMethod = true;
+
                 CreateFillMethod(isTTSRecursive, source.MaxDepth, map.SourceType.IsValueType, map.FillSourceFromTargetMethodName, sourceFullTypeName, targetFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
 
                 foreach (var item in map.SourceType.UnsafePropertyFieldsGetters)
@@ -630,10 +683,17 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             }
 
             if(map.AddTTSTryGet)
+            {
+                map.RenderedTTSTryGetMethod = true;
+
                 CreateTryGetMethod(isTTSRecursive, source.MaxDepth, toSameType, map.TryGetSourceMethodName, map.ToSourceMethodName, map.TargetType.FullName, map.SourceType.FullName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
-            
+            }
+
             map.BuildToSourceMethod = null;
         };
+
+
+        var allowLowerCase = map.TargetType.IsTupleType || map.SourceType.IsTupleType;
 
         while (++l < lLen)
         {
@@ -643,7 +703,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             while (++r < rLen)
             {
                 if (IsNotMappable(sourceMembers[r], out var sourceMemberType, out var sourceTypeId, out var sourceMember)
-                    || AreNotMappableByDesign(map.TargetType.IsTupleType || map.SourceType.IsTupleType, targetMember, sourceMember))
+                    || AreNotMappableByDesign(allowLowerCase, sourceMember, targetMember, out var ignoreSource, out var ignoreTarget))
 
                     continue;
 
@@ -652,7 +712,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                     targetMember.Type = targetMember.OwningType = map.TargetType;
                     sourceMember.Type = sourceMember.OwningType = map.SourceType;
 
-                    if (!map.TargetType.IsInterface && !targetMember.Ignore)
+                    if (!map.TargetType.IsInterface && !ignoreTarget)
                     {
                         map.STTMemberCount++;
 
@@ -663,24 +723,25 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
                         hasComplexSTTMembers = true;
 
-                        sttMembers += f =>
+                        sttMembers += isFill =>
                         {
                             code.Append(BuildTypeMember(
-                                f,
+                                isFill,
                                 ref sttComma,
                                 sttSpacing,
                                 map.BuildToTargetValue,
                                 sourceMember,
                                 targetMember,
                                 map.ToTargetMethodName,
-                                map.FillTargetFromSourceMethodName));
+                                map.FillTargetFromSourceMethodName,
+                                map.RequiresSTTCall));
 
                             if(targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += () => nullUnsafeAccesor.Render(code);
                         };
                     }
 
-                    if (!toSameType && !map.SourceType.IsInterface && !sourceMember.Ignore)
+                    if (!toSameType && !map.SourceType.IsInterface && !ignoreSource)
                     {
                         map.TTSMemberCount++;
 
@@ -690,17 +751,18 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                         if (sourceMember.IsNullable)
                             map.AddTTSTryGet = true;
 
-                        ttsMembers += f =>
+                        ttsMembers += isFill =>
                         {
                             code.Append(BuildTypeMember(
-                                f,
+                                isFill,
                                 ref ttsComma,
                                 ttsSpacing,
                                 map.BuildToSourceValue,
                                 targetMember,
                                 sourceMember,
                                 map.ToSourceMethodName,
-                                map.FillSourceFromTargetMethodName));
+                                map.FillSourceFromTargetMethodName,
+                                map.RequiresTTSCall));
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += () => nullUnsafeAccesor.Render(code);
@@ -720,19 +782,17 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
                 memberMap = CreateType(
                     memberMap,
-                    targetMember,
                     sourceMember,
-                    mappingPath + targetTypeId + "+",
-                    mappingPath + sourceTypeId + "+");
+                    targetMember,
+                    sourceMappingPath,
+                    targetMappingPath);
 
                 if (memberMap is { CanMap: not false })
                 {
                     targetMember.OwningType = map.TargetType;
                     sourceMember.OwningType = map.SourceType;
-                    targetMember.Type = memberMap.TargetType;
-                    sourceMember.Type = memberMap.SourceType;
 
-                    if (!map.TargetType.IsInterface && !targetMember.Ignore)
+                    if (!map.TargetType.IsInterface && !ignoreTarget)
                     {
                         map.STTMemberCount++;
 
@@ -741,26 +801,30 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
                         hasComplexSTTMembers = !memberMap.TargetType.IsPrimitive;
 
-                        map.TargetType.IsRecursive |= isSTTRecursive |= memberMap.TargetType.IsRecursive;
+                        map.TargetType.IsRecursive |= 
+                            isSTTRecursive |= 
+                            memberMap.TargetType.IsRecursive |= 
+                            memberMap.IsCollection is true && memberMap.TargetType.CollectionInfo.ItemDataType.Id == target.Type.Id;
 
-                        sttMembers += f =>
+                        sttMembers += isFill =>
                         {
                             code.Append(BuildTypeMember(
-                                f,
+                                isFill,
                                 ref sttComma,
                                 sttSpacing,
                                 memberMap.BuildToTargetValue,
                                 sourceMember,
                                 targetMember,
                                 memberMap.ToTargetMethodName,
-                                memberMap.FillTargetFromSourceMethodName));
+                                memberMap.FillTargetFromSourceMethodName,
+                                memberMap.RequiresSTTCall));
 
                             if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += () => nullUnsafeAccesor.Render(code);
                         };
                     }
 
-                    if (!toSameType && !map.SourceType.IsInterface && !sourceMember.Ignore)
+                    if (!toSameType && !map.SourceType.IsInterface && !ignoreSource)
                     {
                         map.TTSMemberCount++;
 
@@ -769,19 +833,23 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
                         hasComplexTTSMembers = !memberMap.SourceType.IsPrimitive;
 
-                        map.SourceType.IsRecursive |= isTTSRecursive |= memberMap.SourceType.IsRecursive;
+                        map.SourceType.IsRecursive |= 
+                            isTTSRecursive |= 
+                            memberMap.SourceType.IsRecursive |=
+                            memberMap.IsCollection is true && memberMap.SourceType.CollectionInfo.ItemDataType.Id == source.Type.Id;
 
-                        ttsMembers += f =>
+                        ttsMembers += isFill =>
                         {
                             code.Append(BuildTypeMember(
-                                f,
+                                isFill,
                                 ref ttsComma,
                                 ttsSpacing,
                                 memberMap.BuildToSourceValue,
                                 targetMember,
                                 sourceMember,
                                 memberMap.ToSourceMethodName,
-                                memberMap.FillSourceFromTargetMethodName));
+                                memberMap.FillSourceFromTargetMethodName,
+                                memberMap.RequiresTTSCall));
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += () => nullUnsafeAccesor.Render(code);
@@ -947,8 +1015,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         {
             targetColl = map.TargetType.CollectionInfo;
             sourceColl = map.SourceType.CollectionInfo;
-            ltrInfo = map.LTRCollection;
-            rtlInfo = map.RTLCollection;
+            ltrInfo = map.TTSCollection;
+            rtlInfo = map.STTCollection;
             return true;
         }
         else
@@ -985,8 +1053,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
             if (map.IsCollection is null)
             {
-                ltrInfo = map.LTRCollection = GetResult(targetColl, sourceColl, map.ToSourceMethodName);
-                rtlInfo = map.RTLCollection = GetResult(sourceColl, targetColl, map.ToTargetMethodName);
+                ltrInfo = map.TTSCollection = GetResult(targetColl, sourceColl, map.ToSourceMethodName);
+                rtlInfo = map.STTCollection = GetResult(sourceColl, targetColl, map.ToTargetMethodName);
                 map.IsCollection = true;
                 return true;
             }
@@ -1000,8 +1068,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         {
             ltrInfo = default;
             rtlInfo = default;
-            targetColl = default;
-            sourceColl = default;
+            targetColl = default!;
+            sourceColl = default!;
         }
     }
 
@@ -1041,7 +1109,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     {
         if (type.IsPrimitive(true))
         {
-            info = default;
+            info = default!;
             return false;
         }
 
@@ -1109,7 +1177,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 break;
         }
 
-        info = default;
+        info = default!;
+
         return false;
 
         static ITypeSymbol GetEnumerableType(Compilation compilation, ITypeSymbol enumerableType)
@@ -1180,11 +1249,12 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         bool isFill,
         ref string? comma,
         string spacing,
-        Func<string, string> createType,
+        ValueBuilder createType,
         Member source,
         Member target,
         string sourceToTargetMethodName,
-        string fillTargetFromMethodName)
+        string fillTargetFromMethodName,
+        bool call)
     {
         bool checkNull = (!target.IsNullable || !target.Type.IsPrimitive) && source.IsNullable;
 
@@ -1299,28 +1369,30 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             }
 
             return $@"
-        {targetMember} = {GenerateValue(sourceMember, createType, checkNull, source.Bang, source.DefaultBang)};";
+        {targetMember} = {GenerateValue(sourceMember, createType, checkNull, call, target.Type.IsValueType, source.Bang, source.DefaultBang)};";
 
         }
         else
         {
             return Exch(ref comma, ",") + spacing + (target.OwningType?.IsTupleType is not true ? target.Name + " = " : null)
-                + GenerateValue("input." + source.Name, createType, checkNull, source.Bang, source.DefaultBang);
+                + GenerateValue("input." + source.Name, createType, checkNull, call, target.Type.IsValueType, source.Bang, source.DefaultBang);
         }
     }
 
-    bool AreNotMappableByDesign(bool tupleType, Member target, Member source)
+    bool AreNotMappableByDesign(bool ignoreCase, Member source, Member target, out bool ignoreSource, out bool ignoreTarget)
     {
+        ignoreSource = ignoreTarget = false;
+
         return !(target.Name.Equals(
             source.Name, 
-            tupleType 
+            ignoreCase 
                 ? StringComparison.InvariantCultureIgnoreCase 
                 : StringComparison.InvariantCulture)
-            | CheckMappability(target, source)
-            | CheckMappability(source, target));
+            | CheckMappability(target, source, ref ignoreSource, ref ignoreTarget)
+            | CheckMappability(source, target, ref ignoreTarget, ref ignoreSource));
     }
 
-    bool CheckMappability(Member target, Member source)
+    bool CheckMappability(Member target, Member source, ref bool ignoreTarget, ref bool ignoreSource)
     {
         if (!target.IsWritable || !source.IsReadable)
             return false;
@@ -1336,17 +1408,19 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 switch ((ApplyOn)(int)attr.ConstructorArguments[0].Value!)
                 {
                     case ApplyOn.Target:
-                        target.Ignore = true;
+                        ignoreTarget = true;
                         return false;
                     case ApplyOn.Both:
-                        target.Ignore = source.Ignore = true;
+                        ignoreTarget = ignoreSource = true;
                         return false;
                     case ApplyOn.Source:
-                        source.Ignore = true;
+                        ignoreSource = true;
                         break;
                 }
-                if (target.Ignore && source.Ignore)
+
+                if (ignoreTarget && ignoreSource)
                     return false;
+
                 continue;
             }
 
@@ -1368,20 +1442,21 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                  && _comparer.GetHashCode(compilation.GetSemanticModel(id.SyntaxTree).GetSymbolInfo(id).Symbol) == source.Id)
             {
                 canWrite = true;
+
                 switch ((ApplyOn)(int)attr.ConstructorArguments[1].Value!)
                 {
                     case ApplyOn.Target:
-                        target.Ignore = true;
+                        ignoreTarget = true;
                         return false;
                     case ApplyOn.Both:
-                        target.Ignore = source.Ignore = true;
+                        ignoreTarget = ignoreSource = true;
                         return false;
                     case ApplyOn.Source:
-                        source.Ignore = true;
+                        ignoreSource = true;
                         break;
                 }
 
-                if (target.Ignore && source.Ignore)
+                if (ignoreTarget && ignoreSource)
                     return false;
             }
         }

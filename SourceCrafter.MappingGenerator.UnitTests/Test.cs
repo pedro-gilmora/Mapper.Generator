@@ -159,13 +159,37 @@ public static partial class Mappers
         fromDto.DateOfBirth.Should().Be(today);
         fromDto.Balance.Should().Be(45.6);
         fromDto.Count.Should().Be(5);
+        fromDto.MainRole.Id.Should().Be(0);
+        fromDto.MainRole.Name.Should().Be("admin");
 
-        var fromModel = fromDto.ToUserDto();
+        var userCopy = fromDto.Copy();
+        userCopy.Age.Should().Be(32);
+        userCopy.FirstName.Should().Be("Pedro");
+        userCopy.LastName.Should().Be("Gil Mora");
+        userCopy.DateOfBirth.Should().Be(today);
+        userCopy.Balance.Should().Be(45.6);
+        userCopy.Count.Should().Be(5);
+        userCopy.MainRole.Id.Should().Be(0);
+        userCopy.MainRole.Name.Should().Be("admin");
+
+        userCopy.Count = 20;
+        userCopy.MainRole = userCopy.MainRole with
+        {
+            Name = "supervisor"
+        };
+
+        fromDto.Update(userCopy);
+
+        fromDto.Count.Should().Be(20);
+
+        var fromModel = userCopy.ToUserDto();
         fromModel.Age.Should().Be(32);
         fromModel.FullName.Should().Be("Gil Mora, Pedro");
         fromModel.DateOfBirth.Should().Be(today);
         fromModel.TotalAmount.Should().Be(45.6m);
-        fromModel.Count.Should().Be(5);
+        fromModel.Count.Should().Be(20);
+        fromModel.MainRole.id.Should().Be(0);
+        fromModel.MainRole.name.Should().Be("supervisor");
     }
 
     private static void GetRootAndModel(string code, out CSharpCompilation compilation, out SyntaxNode root, out SemanticModel model, params Type[] assemblies)
