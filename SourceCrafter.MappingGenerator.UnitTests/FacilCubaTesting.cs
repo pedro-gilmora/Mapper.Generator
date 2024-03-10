@@ -5,6 +5,7 @@ using Xunit;
 using SourceCrafter.Mappings;
 using System.Xml.Linq;
 using FluentAssertions;
+using SourceCrafter.Mvvm.Attributes;
 
 
 namespace SourceCrafter.MappingGenerator.UnitTests
@@ -35,16 +36,18 @@ namespace SourceCrafter.MappingGenerator.UnitTests
         }
     }
 
-    public class AppUser
+    [Reactive]
+    public interface IAppUser
     {
-        public string UserName { get; set; }
+        string UserName { get; set; }
         [Bind(nameof(MeAsUser.Name))]
-        public string FirstName { get; set; }
-        public string LastName { get; set; }
-        public string Email { get; set; }
-        public  string ProfilePhotoUrl { get; set; }
-        public decimal Balance { get; set; }
+        string FirstName { get; set; }
+        string LastName { get; set; }
+        string Email { get; set; }
+        string ProfilePhotoUrl { get; set; }
+        decimal Balance { get; set; }
     }
+
     public class UserInfo : ApiUser
     {
         /* profile_photo_path */

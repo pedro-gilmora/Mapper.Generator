@@ -44,18 +44,21 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     internal static readonly SymbolEqualityComparer
         _comparer = SymbolEqualityComparer.Default;
 
-    internal Action AddMapper(ITypeSymbol sourceType, ITypeSymbol targetType, ApplyOn ignore, MappingKind mapKind)
+    internal Action AddMapper(TypeMapInfo sourceType, TypeMapInfo targetType, ApplyOn ignore, MappingKind mapKind)
     {
-        int targetId = GetId(targetType),
-            sourceId = GetId(sourceType);
+        ITypeSymbol targetTypeSymbol = targetType.implementation ?? targetType.membersSource,
+            sourceTypeSymbol = sourceType.implementation ?? sourceType.membersSource;
+
+        int targetId = GetId(targetTypeSymbol),
+            sourceId = GetId(sourceTypeSymbol);
 
         Member
-            target = new(++targetScopeId, "to", targetType.IsNullable()),
-            source = new(--sourceScopeId, "source", sourceType.IsNullable());
+            target = new(++targetScopeId, "to", targetTypeSymbol.IsNullable()),
+            source = new(--sourceScopeId, "source", sourceTypeSymbol.IsNullable());
 
         var typeMappingInfo = GetOrAddMapper(
-            targetType.AsNonNullable(),
-            sourceType.AsNonNullable(),
+            targetType,
+            sourceType,
             targetId,
             sourceId);
 
@@ -108,8 +111,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 sourceItem = new(source.Id, source.Name + "Item", sourceCollInfo.IsItemNullable);
 
             var itemMap = GetOrAddMapper(
-                targetCollInfo.TypeSymbol.AsNonNullable(),
-                sourceCollInfo.TypeSymbol.AsNonNullable(),
+                new(targetCollInfo.TypeSymbol.AsNonNullable()),
+                new(sourceCollInfo.TypeSymbol.AsNonNullable()),
                 targetItemId,
                 sourceItemId);
 
@@ -278,8 +281,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         ref Action? methodCreator)
     {
         string
-            targetFullTypeName = targetCollInfo.DataType.NotNullFullName,
-            sourceFullTypeName = sourceCollInfo.DataType.NotNullFullName,
+            targetFullTypeName = targetCollInfo.DataType.ExportNotNullFullName,
+            sourceFullTypeName = sourceCollInfo.DataType.ExportNotNullFullName,
             targetItemFullTypeName = targetCollInfo.ItemDataType.FullName,
             countProp = sourceCollInfo.CountProp,
             methodName = ltrInfo.ToTargetMethodName;
@@ -591,11 +594,11 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             return;
 
         string
-            sourceFullTypeName = map.SourceType.NotNullFullName,
-            targetFullTypeName = map.TargetType.NotNullFullName,
-            ttsTypeStart = map.SourceType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, sourceFullTypeName),
+            sourceExportFullTypeName = map.SourceType.ExportNotNullFullName,
+            targetExportFullTypeName = map.TargetType.ExportNotNullFullName,
+            ttsTypeStart = map.SourceType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, map.SourceType.NotNullFullName),
             ttsTypeEnd = map.SourceType.IsTupleType ? TUPLE_END : TYPE_END,
-            sttTypeStart = map.TargetType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, targetFullTypeName),
+            sttTypeStart = map.TargetType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, map.TargetType.NotNullFullName),
             sttTypeEnd = map.TargetType.IsTupleType ? TUPLE_END : TYPE_END,
             ttsSpacing = map.SourceType.IsTupleType ? " " : @"
             ",
@@ -639,13 +642,13 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
             map.RenderedSTTDefaultMethod = true;
 
-            CreateDefaultMethod(isSTTRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceFullTypeName, targetFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+            CreateDefaultMethod(isSTTRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
             
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
                 map.RenderedSTTFillMethod = true;
 
-                CreateFillMethod(isSTTRecursive, maxDepth, map.TargetType.IsValueType, map.FillTargetFromSourceMethodName, targetFullTypeName, sourceFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+                CreateFillMethod(isSTTRecursive, maxDepth, map.TargetType.IsValueType, map.FillTargetFromSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
 
                 foreach (var item in map.TargetType.UnsafePropertyFieldsGetters)
                     item.Render(code);
@@ -655,7 +658,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             {
                 map.RenderedSTTTryGetMethod = true;
 
-                CreateTryGetMethod(isSTTRecursive, maxDepth, toSameType, map.TryGetTargetMethodName, map.ToTargetMethodName, map.SourceType.FullName, map.TargetType.FullName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+                CreateTryGetMethod(isSTTRecursive, maxDepth, toSameType, map.TryGetTargetMethodName, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
             }
         };
 
@@ -675,13 +678,13 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
             map.RenderedTTSDefaultMethod = true;
 
-            CreateDefaultMethod(isTTSRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetFullTypeName, sourceFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+            CreateDefaultMethod(isTTSRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
                 map.RenderedTTSFillMethod = true;
 
-                CreateFillMethod(isTTSRecursive, source.MaxDepth, map.SourceType.IsValueType, map.FillSourceFromTargetMethodName, sourceFullTypeName, targetFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+                CreateFillMethod(isTTSRecursive, source.MaxDepth, map.SourceType.IsValueType, map.FillSourceFromTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
 
                 foreach (var item in map.SourceType.UnsafePropertyFieldsGetters)
                     item.Render(code);
@@ -691,7 +694,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             {
                 map.RenderedTTSTryGetMethod = true;
 
-                CreateTryGetMethod(isTTSRecursive, source.MaxDepth, toSameType, map.TryGetSourceMethodName, map.ToSourceMethodName, map.TargetType.FullName, map.SourceType.FullName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+                CreateTryGetMethod(isTTSRecursive, source.MaxDepth, toSameType, map.TryGetSourceMethodName, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
             }
 
             map.BuildToSourceMethod = null;
@@ -780,8 +783,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 }
 
                 var memberMap = GetOrAddMapper(
-                    targetMemberType,
-                    sourceMemberType,
+                    new(targetMemberType),
+                    new(sourceMemberType),
                     targetTypeId,
                     sourceTypeId);
 
@@ -886,12 +889,23 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
             map.AddTTSTryGet = false;
         }
 
-        void CreateDefaultMethod(bool isRecursive, int maxDepth, bool toSameType, string typeStart, string typeEnd, string methodName, string sourceFullTypeName, string targetFullTypeName, string? defaultSourceBang, MemberBuilder members, bool hasComplexMembers)
+        void CreateDefaultMethod(
+            bool isRecursive,
+            int maxDepth,
+            bool toSameType,
+            string typeStart,
+            string typeEnd,
+            string methodName,
+            string sourceFullTypeName,
+            string targetFullTypeName,
+            string? defaultSourceBang,
+            MemberBuilder members,
+            bool hasComplexMembers)
         {
             if (members is null) return;
             code.Append($@"
     /// <summary>
-    /// Creates a new instance of <see cref=""{targetFullTypeName}""/> based from a given instance of <see cref=""{sourceFullTypeName}""/>
+    /// Creates a new instance of <see cref=""{targetExportFullTypeName}""/> based from a given instance of <see cref=""{sourceExportFullTypeName}""/>
     /// </summary>
     /// <param name=""input"">Data source to be mappped</param>{(isRecursive ? $@"
     /// <param name=""depth"">Depth index for recursivity control</param>
@@ -1176,7 +1190,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
                 }
                 else
                     foreach (var item in type.AllInterfaces)
-                        if (IsEnumerableType(item.ToGlobalizedNonGenericNamespace(), item, out info))
+                        if (IsEnumerableType(item.ToGlobalNonGenericNamespace(), item, out info))
                             return true;
                 break;
         }
@@ -1405,7 +1419,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
         foreach (var attr in target.Attributes)
         {
-            if (attr.AttributeClass?.ToGlobalizedNamespace() is not { } className) continue;
+            if (attr.AttributeClass?.ToGlobalNamespace() is not { } className) continue;
 
             if (className == "global::SourceCrafter.Bindings.Attributes.IgnoreBindAttribute")
             {
@@ -1475,13 +1489,6 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
         target.Bang = GetBangChar(source.IsNullable, target.IsNullable);
     }
 
-    private static string SanitizeScalar(string memberName)
-    {
-        return memberName.LastIndexOf('[') is not -1 and int r
-            ? memberName[..r] + "Item"
-            : memberName;
-    }
-
     static uint GetId(int targetId, int sourceId)
         => (uint)(Math.Min(targetId, sourceId), Math.Max(targetId, sourceId)).GetHashCode();
 
@@ -1493,7 +1500,7 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
 
     static string? Exch(ref string? init, string? update = null) => ((init, update) = (update, init)).update;
 
-    TypeMappingInfo GetOrAddMapper(ITypeSymbol target, ITypeSymbol source, int targetId, int sourceId)
+    TypeMappingInfo GetOrAddMapper(TypeMapInfo target, TypeMapInfo source, int targetId, int sourceId)
     {
         var entries = _entries;
 
@@ -1690,6 +1697,8 @@ internal sealed partial class MappingSet(Compilation compilation, StringBuilder 
     #endregion
 }
 
-internal readonly record struct MapInfo(ITypeSymbol from, ITypeSymbol to, MappingKind mapKind, ApplyOn ignore);
+internal readonly record struct TypeMapInfo(ITypeSymbol membersSource, ITypeSymbol? implementation = null);
+
+internal readonly record struct MapInfo(TypeMapInfo from, TypeMapInfo to, MappingKind mapKind, ApplyOn ignore, bool generate = true);
 
 internal readonly record struct CompilationAndAssemblies(Compilation Compilation, ImmutableArray<MapInfo> OverClass, ImmutableArray<MapInfo> Assembly);

@@ -22,8 +22,11 @@ internal sealed class TypeData
     internal readonly string
         FullName,
         NotNullFullName,
-        NonGenericFullName, 
-        Sanitized;
+        NonGenericFullName,
+        ExportNonGenericFullName, 
+        Sanitized,
+        ExportFullName, 
+        ExportNotNullFullName;
 
     private readonly Compilation _compilation;
 
@@ -52,31 +55,60 @@ internal sealed class TypeData
 
     internal bool IsMultiMember => IsTupleType || !(IsPrimitive || IsIterable is true);
 
-    HashSet<ISymbol>? _members;
+    readonly HashSet<ISymbol>? _members;
 
-    internal IEnumerable<ISymbol> Members => _members ??= GetAllMembers(_typeSymbol);
+    internal readonly Func<HashSet<ISymbol>> _membersRetriever;
 
-    internal IEnumerable<IFieldSymbol> TupleElements => ((INamedTypeSymbol)_typeSymbol).TupleElements.AsEnumerable();
+    IEnumerable<IFieldSymbol>? _tupleMembers;
 
-    internal TypeData(Compilation compilation, ITypeSymbol type, int typeId)
+    internal IEnumerable<ISymbol> Members =>
+        _members ?? _membersRetriever();
+
+    internal IEnumerable<IFieldSymbol> TupleElements => 
+        _tupleMembers ??= ((INamedTypeSymbol)_typeSymbol).TupleElements.AsEnumerable();
+
+
+    internal TypeData(Compilation compilation, TypeMapInfo typeMapInfo, int typeId)
     {
+        var type = typeMapInfo.implementation ?? typeMapInfo.membersSource;
+
         _compilation = compilation;
         Id = typeId;
 
         if (type.IsNullable())
         {
             type = ((INamedTypeSymbol)type).TypeArguments[0];
-            FullName = type.ToGlobalizedNamespace() + "?";
-            NotNullFullName = FullName = type.ToGlobalizedNamespace();
+            FullName = type.ToGlobalNamespace() + "?";
+
+            var preceedingNamespace = typeMapInfo.implementation?.ContainingNamespace?.ToString() == "<global namespace>" 
+                ? typeMapInfo.membersSource.ToGlobalNamespace() + "."
+                : null;
+
+            NotNullFullName = FullName = preceedingNamespace + type.ToGlobalNamespace() + "?";
+
+            ExportFullName = (ExportNotNullFullName = typeMapInfo.membersSource?.AsNonNullable() is { } memSource
+                ? memSource.ToGlobalNamespace()
+                : FullName) + "?";            
         }
         else
         {
-            NotNullFullName =FullName = type.ToGlobalizedNamespace();
+            var preceedingNamespace = typeMapInfo.implementation?.ContainingNamespace?.ToString() == "<global namespace>"
+                ? typeMapInfo.membersSource.ContainingNamespace.ToGlobalNamespace() + "."
+                : null;
+
+            NotNullFullName = FullName = preceedingNamespace + type.ToGlobalNamespace();
+
+            ExportFullName = (ExportNotNullFullName = typeMapInfo.membersSource?.AsNonNullable() is { } memSource
+                ? memSource.ToGlobalNamespace()
+                : FullName);
         }
+
+        _membersRetriever = () => GetAllMembers(typeMapInfo.membersSource!); ;
 
         Sanitized = SanitizeTypeName(type);
         AllowsNull = type.AllowsNull();
-        NonGenericFullName = type.ToGlobalizedNonGenericNamespace();
+        NonGenericFullName = type.ToGlobalNonGenericNamespace();
+        ExportNonGenericFullName = type.ToGlobalNonGenericNamespace();
         IsTupleType = type.IsTupleType;
         IsValueType = type.IsValueType;
         IsStruct = type.TypeKind is TypeKind.Struct or TypeKind.Structure;

@@ -9,6 +9,7 @@ using System.Text;
 using System.Diagnostics;
 using SourceCrafter.MappingGenerator;
 using System.Collections.Generic;
+using SourceCrafter.Bindings.Helpers;
 
 [assembly: InternalsVisibleTo("SourceCrafter.MappingGenerator.UnitTests")]
 namespace SourceCrafter.Bindings;
@@ -20,28 +21,38 @@ public class Generator : IIncrementalGenerator
     {
         try
         {
+            //context.CompilationProvider.Select(i =>
+            //{
+            //    var e = i.SourceModule.GetAttributes();
+            //    return i;
+            //});
 #if DEBUG_SG
             Debugger.Launch();
 #endif
             var d = FindMapperAttributes(context,
                 "SourceCrafter.Bindings.Attributes.BindAttribute`1",
-                static n => n is ClassDeclarationSyntax { Modifiers: { } },
-                static (targetSymbol, model, attr) => new MapInfo(
-                    (ITypeSymbol)targetSymbol,
-                    attr.AttributeClass!.TypeArguments[0],
-                    (MappingKind)(int)attr.ConstructorArguments[0].Value!,
-                    (ApplyOn)(int)attr.ConstructorArguments[1].Value!
-                ))
+                static n => n is ClassDeclarationSyntax { },
+                static (targetSymbol, model, attr) =>
+                    attr is { AttributeClass.TypeArguments :[{ }  target], ConstructorArguments: [{Value: int mapKind }, {Value: int ignore},..] }
+                        ? new MapInfo(
+                                GetTypeMapInfo((ITypeSymbol)targetSymbol),
+                                GetTypeMapInfo(target),
+                                (MappingKind)mapKind,
+                                (ApplyOn)ignore)
+                        : default)
                 .Combine(
                     FindMapperAttributes(
                         context,
                         "SourceCrafter.Bindings.Attributes.BindAttribute`2",
-                        static n => n is CompilationUnitSyntax or InterfaceDeclarationSyntax,
-                        static (_, model, attr) => new MapInfo(
-                            attr.AttributeClass!.TypeArguments[0],
-                            attr.AttributeClass!.TypeArguments[1],
-                            (MappingKind)(int)attr.ConstructorArguments[0].Value!,
-                            (ApplyOn)(int)attr.ConstructorArguments[1].Value!)));
+                        static n => n is CompilationUnitSyntax,
+                        static (_, model, attr) =>
+                            attr is { AttributeClass.TypeArguments: [{ } target, { } source], ConstructorArguments: [{Value: int mapKind }, {Value: int ignore},..]  }
+                                ? new MapInfo(
+                                    GetTypeMapInfo(target),
+                                    GetTypeMapInfo(source),
+                                    (MappingKind)mapKind,
+                                    (ApplyOn)ignore)
+                                : default));
 
             context.RegisterSourceOutput(context.CompilationProvider.Combine(d), (ctx, info)
                 => ProcessPosibleMappers(ctx, info.Left, info.Right.Left, info.Right.Right));
@@ -51,6 +62,13 @@ public class Generator : IIncrementalGenerator
         {
             Trace.Write("[SourceCrafter Exception]" + e.ToString());
         }
+    }
+
+    private static TypeMapInfo GetTypeMapInfo(ITypeSymbol targetSymbol)
+    {
+        return targetSymbol is INamedTypeSymbol { } namedSymbol && namedSymbol.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Bindings.Attributes.IImplement"
+            ? new(namedSymbol.TypeArguments[0], namedSymbol.TypeArguments[1])
+            : new(targetSymbol, null);
     }
 
     private void ProcessPosibleMappers(SourceProductionContext ctx, Compilation compilation, ImmutableArray<MapInfo> OverClass, ImmutableArray<MapInfo> Assembly)
@@ -86,10 +104,12 @@ public static partial class MappingsExtensions
         Action? buildAll = null;
 
         foreach (var gctx in Assembly)
-            buildAll += set.AddMapper(gctx.from, gctx.to, gctx.ignore, gctx.mapKind);
+            if(gctx.generate)
+                buildAll += set.AddMapper(gctx.from, gctx.to, gctx.ignore, gctx.mapKind);
 
         foreach (var gctx in classAttributes)
-            buildAll += set.AddMapper(gctx.from, gctx.to, gctx.ignore, gctx.mapKind);
+            if (gctx.generate)
+                buildAll += set.AddMapper(gctx.from, gctx.to, gctx.ignore, gctx.mapKind);
 
         buildAll?.Invoke();
     }

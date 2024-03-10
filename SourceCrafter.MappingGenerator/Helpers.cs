@@ -26,9 +26,9 @@ namespace SourceCrafter.Bindings.Helpers
                 genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeVariance,
                 miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
-        internal static string ToGlobalizedNamespace(this ITypeSymbol t) => t.ToDisplayString(_globalizedNamespace);
+        internal static string ToGlobalNamespace(this ISymbol t) => t.ToDisplayString(_globalizedNamespace);
         
-        internal static string ToGlobalizedNonGenericNamespace(this ITypeSymbol t) => t.ToDisplayString(_globalizedNonGenericNamespace);
+        internal static string ToGlobalNonGenericNamespace(this ISymbol t) => t.ToDisplayString(_globalizedNonGenericNamespace);
        
         internal static string ToTypeNameFormat(this ITypeSymbol t) => t.ToDisplayString(_typeNameFormat);
         
@@ -64,7 +64,7 @@ namespace SourceCrafter.Bindings.Helpers
         
         internal static bool AllowsNull(this ITypeSymbol typeSymbol)
 #if DEBUG
-            => typeSymbol.BaseType?.ToGlobalizedNonGenericNamespace() is not ("global::System.ValueType" or "global::System.ValueTuple");
+            => typeSymbol.BaseType?.ToGlobalNonGenericNamespace() is not ("global::System.ValueType" or "global::System.ValueTuple");
 #else
             => typeSymbol is { IsValueType: false, IsTupleType: false, IsReferenceType: true };
 #endif

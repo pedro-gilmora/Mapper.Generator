@@ -3,8 +3,6 @@ using SourceCrafter.MappingGenerator.UnitTests;
 using SourceCrafter.UnitTests;
 
 [assembly:
-    Bind<IUser, UserDto>,
-    Bind<IUser, User>,
+    Bind<IImplement<IAppUser, AppUser>, MeAsUser>,
     Bind<User, User>,
-    Bind<AppUser, MeAsUser>,
     Bind<User, UserDto>]

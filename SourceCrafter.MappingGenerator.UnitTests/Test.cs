@@ -58,8 +58,8 @@ public static partial class Mappers
 
         var assemblyAtributes = compilation.Assembly
             .GetAttributes()
-            .Where(c => c.AttributeClass?.ToGlobalizedNonGenericNamespace() == "global::SourceCrafter.Binding.Attributes.BindAttribute")
-            .Select(c => new MapInfo(c.AttributeClass!.TypeArguments[0], c.AttributeClass!.TypeArguments[1], MappingKind.All, ApplyOn.None))
+            .Where(c => c.AttributeClass?.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Binding.Attributes.BindAttribute")
+            .Select(c => new MapInfo(new(c.AttributeClass!.TypeArguments[0]), new(c.AttributeClass!.TypeArguments[1]), MappingKind.All, ApplyOn.None))
             .ToImmutableArray();
 
         new Generator()

@@ -16,7 +16,7 @@ internal sealed partial class MappingSet
 
         record struct TypeEntry(int Id) { internal TypeData type; internal int next = 0; }
 
-        internal ref TypeData GetOrAdd(ITypeSymbol symbol, int hashCode)
+        internal ref TypeData GetOrAdd(TypeMapInfo symbol, int hashCode)
         {
             var entries = _entries;
 
