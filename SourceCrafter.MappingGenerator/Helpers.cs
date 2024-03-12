@@ -6,7 +6,7 @@ using Microsoft.CodeAnalysis;
 using SourceCrafter.Bindings.Helpers;
 
 
-[assembly: InternalsVisibleTo("SourceCrafter.MappingGenerator.UnitTests")]
+[assembly: InternalsVisibleTo("SourceCrafter.Bindings.UnitTests")]
 namespace SourceCrafter.Bindings.Helpers
 {
     public interface IEnum<T> where T : Enum;

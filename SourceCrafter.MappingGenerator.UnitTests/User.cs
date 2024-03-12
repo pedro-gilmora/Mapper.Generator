@@ -28,7 +28,7 @@ public partial class User //: IUser
     [Bind(nameof(UserDto.TotalAmount))]
     public double? Balance { get; set; }
     [Max(2)]
-    public User[] Asignees { get; set; } = [];
+    public IEnumerable<User> Asignees { get; set; } = [];
     public Role MainRole { get; set; }
     public User? Supervisor { get; init; }
     public string[] Phrases { get; set; } = [];

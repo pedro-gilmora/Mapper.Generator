@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using SourceCrafter.Bindings.Constants;
 using SourceCrafter.Bindings.Helpers;
-using SourceCrafter.MappingGenerator;
+using SourceCrafter.Bindings;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -267,11 +267,11 @@ internal sealed class TypeData
         _cached{1}Descriptions,
         _cached{1}Names;
 
-    public static global::System.Collections.Immutable.ImmutableArray<string> Get{1}Descriptions() 
+    public static global::System.Collections.Immutable.ImmutableArray<string> GetDescriptions<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}> 
         => _cached{1}Descriptions ??= global::System.Collections.Immutable.ImmutableArray.Create(
             {3});
 
-    public static global::System.Collections.Immutable.ImmutableArray<string> Get{1}Names() 
+    public static global::System.Collections.Immutable.ImmutableArray<string> GetNames<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}>
         => _cached{1}Names ??= global::System.Collections.Immutable.ImmutableArray.Create(
             {4});
 

@@ -15,8 +15,6 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SourceCrafter.Bindings", "S
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SourceCrafter.MappingGenerator.UnitTests", "SourceCrafter.MappingGenerator.UnitTests\SourceCrafter.MappingGenerator.UnitTests.csproj", "{D6E0DD9D-5DEA-431A-9F0C-267262388EA9}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "SourceCrafter.Mvvm.Helpers", "SourceCrafter.Mvvm.Helpers\SourceCrafter.Mvvm.Helpers.csproj", "{DB7B0DBA-0E03-41AA-89FF-F64BBCF0C8E0}"
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{B3E802C0-CB3D-42B9-84C4-F8ABCFC2C775}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
@@ -46,13 +44,6 @@ Global
 		{D6E0DD9D-5DEA-431A-9F0C-267262388EA9}.Pack|Any CPU.Build.0 = Pack|Any CPU
 		{D6E0DD9D-5DEA-431A-9F0C-267262388EA9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D6E0DD9D-5DEA-431A-9F0C-267262388EA9}.Release|Any CPU.Build.0 = Release|Any CPU
-		{DB7B0DBA-0E03-41AA-89FF-F64BBCF0C8E0}.Debug SG|Any CPU.ActiveCfg = Debug|Any CPU
-		{DB7B0DBA-0E03-41AA-89FF-F64BBCF0C8E0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{DB7B0DBA-0E03-41AA-89FF-F64BBCF0C8E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{DB7B0DBA-0E03-41AA-89FF-F64BBCF0C8E0}.Pack|Any CPU.ActiveCfg = Debug|Any CPU
-		{DB7B0DBA-0E03-41AA-89FF-F64BBCF0C8E0}.Pack|Any CPU.Build.0 = Debug|Any CPU
-		{DB7B0DBA-0E03-41AA-89FF-F64BBCF0C8E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{DB7B0DBA-0E03-41AA-89FF-F64BBCF0C8E0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

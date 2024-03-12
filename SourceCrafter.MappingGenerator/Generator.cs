@@ -7,12 +7,11 @@ using SourceCrafter.Bindings.Constants;
 using System.Linq;
 using System.Text;
 using System.Diagnostics;
-using SourceCrafter.MappingGenerator;
 using System.Collections.Generic;
 using SourceCrafter.Bindings.Helpers;
 using Microsoft.CodeAnalysis.CSharp;
 
-[assembly: InternalsVisibleTo("SourceCrafter.MappingGenerator.UnitTests")]
+[assembly: InternalsVisibleTo("SourceCrafter.Bindings.UnitTests")]
 namespace SourceCrafter.Bindings;
 
 [Generator]
@@ -22,11 +21,6 @@ public class Generator : IIncrementalGenerator
     {
         try
         {
-            //context.CompilationProvider.Select(i =>
-            //{
-            //    var e = i.SourceModule.GetAttributes();
-            //    return i;
-            //});
 #if DEBUG_SG
             Debugger.Launch();
 #endif
@@ -92,9 +86,6 @@ public class Generator : IIncrementalGenerator
         {
             if(Debugger.IsAttached && Debugger.IsLogging())
                 Debugger.Log(0, "SGExceptions", "[SouceCrafter.Bindings]: Error attempting to generate mappings and enum extensions:\n" + e.ToString());
-//           code.AppendFormat(@"
-///*{0}*/
-//", e);
         }
     }
 

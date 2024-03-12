@@ -1,8 +1,11 @@
 ﻿using Microsoft.CodeAnalysis;
 using SourceCrafter.Bindings.Constants;
-using SourceCrafter.MappingGenerator;
+using SourceCrafter.Bindings;
 using System;
 using System.Text;
+using System.Security.Cryptography;
+using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace SourceCrafter.Bindings;
 
@@ -36,10 +39,10 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
         TryGetSourceMethodName = sameType
             ? "TryCopy"
             : $"TryGet{source.SanitizedName}",
-        FillTargetFromSourceMethodName = sameType
+        FillTargetMethodName = sameType
             ? "Update"
             : $"FillFrom{source.SanitizedName}",
-        FillSourceFromTargetMethodName = sameType
+        FillSourceMethodName = sameType
             ? "Update"
             : $"FillFrom{target.SanitizedName}";
 
@@ -95,6 +98,7 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
     internal Action<StringBuilder>? BuildToTargetMethod, BuildToSourceMethod;
 
     internal bool HasTargetToSourceMap => HasToSourceScalarConversion || IsCollection is true || TTSMemberCount > 0;
+
     internal bool HasSourceToTargetMap => HasToTargetScalarConversion || IsCollection is true || STTMemberCount > 0;
 
     internal void GatherTarget(ref TypeData? targetExistent, int targetId)
@@ -126,6 +130,7 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
 
     internal void BuildMethods(Action<string, string> addSource)
     {
+        var id = GetMappingHash();
 
         StringBuilder code = new(@"#nullable enable
 namespace SourceCrafter.Bindings;
@@ -139,17 +144,23 @@ public static partial class BindingExtensions
         if (code.Length == len)
             return;
 
-        code.Append(@"
-}");
-
-        addSource($"Mappings.{Id}", code.ToString());
+        addSource($"Mappings.{id}", code.Append(@"
+}").ToString());
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private string GetMappingHash() =>
+        string.Join("", 
+            MD5.Create().ComputeHash(Encoding.UTF8
+                .GetBytes(string.Intern(SourceType.FullName + "<=>" + TargetType.FullName)))
+                .Select(md => md.ToString("X2")));
 
     internal void BuildMethods(StringBuilder code)
     {
         if (CanMap is not true || IsScalar && (!TargetType.IsTupleType || !HasTargetToSourceMap) && (!SourceType.IsTupleType || !HasSourceToTargetMap) || _rendered) return;
 
         _rendered = true;
+
         if (HasSourceToTargetMap)
         {
             BuildToTargetMethod?.Invoke(code);
@@ -177,4 +188,4 @@ sealed record CollectionInfo(
     internal TypeData ItemDataType = null!, DataType = null!;
 }
 
-record struct CollectionMapping(bool CreateArray, bool UseLenInsteadOfIndex, string Iterator, bool Redim, string? Method, string ToTargetMethodName);
+record struct CollectionMapping(bool CreateArray, bool UseLenInsteadOfIndex, string Iterator, bool Redim, string? Method, string MethodName, string FillMethodName);

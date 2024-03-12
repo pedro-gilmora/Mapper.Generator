@@ -13,7 +13,6 @@ using Microsoft.CodeAnalysis.CSharp;
 using SourceCrafter.Bindings.Attributes;
 using SourceCrafter.Bindings.Helpers;
 using SourceCrafter.Bindings.Constants;
-using SourceCrafter.MappingGenerator;
 using SourceCrafter.UnitTests;
 
 namespace SourceCrafter.Bindings.UnitTests;

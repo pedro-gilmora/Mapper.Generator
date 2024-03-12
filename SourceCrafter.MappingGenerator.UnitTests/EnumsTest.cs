@@ -30,7 +30,9 @@ public class EnumsTest
     [Fact]
     public void TestEnums()
     {
-        GetStatusDescriptions().Should().BeEquivalentTo([NotStartedDesc, StoppedDesc, StartedDesc, CancelledDesc, Failure]);
+        GetDescriptions<IEnum<Status>>().Should().BeEquivalentTo([NotStartedDesc, StoppedDesc, StartedDesc, CancelledDesc, Failure]);
+        
+        GetNames<IEnum<Status>>().Should().BeEquivalentTo(["NotStarted","Stopped","Started","Cancelled","Failed"]);
 
         Status.Started.GetName().Should().Be("Started");
 
@@ -62,7 +64,7 @@ public class EnumsTest
     }
 }
 
-[Extend((nameof(Started)+nameof(ApplyOn.Source)) + (nameof(Cancelled) + nameof(ApplyOn.Target)))]
+[Extend]
 public enum Status
 {
     NotStarted,
