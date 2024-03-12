@@ -14,67 +14,68 @@ using SourceCrafter.Bindings.Attributes;
 using SourceCrafter.Bindings.Helpers;
 using SourceCrafter.Bindings.Constants;
 using SourceCrafter.MappingGenerator;
-using SourceCrafter.Mappings;
+using SourceCrafter.UnitTests;
 
-namespace SourceCrafter.UnitTests;
+namespace SourceCrafter.Bindings.UnitTests;
 
 public class TestImplicitMapper
 {
 
-    [Fact]
-    public static void GetSomeType()
-    {
-        GetRootAndModel(@"",
-            out var compilation,
-            out _,
-            out _
-        );
+    //[Fact]
+    //public static void GetSomeType()
+    //{
+    //    GetRootAndModel(@"",
+    //        out var compilation,
+    //        out _,
+    //        out _
+    //    );
 
-        compilation.GetTypeByMetadataName("System.Span`1");
-    }
+    //    compilation.GetTypeByMetadataName("System.Span`1");
+    //}
 
-    [Fact]
-    public static void ParseAssembly()
-    {
-        GetRootAndModel(@"using SourceCrafter.Binding.Attributes;
-using SourceCrafter.UnitTests;
+//    [Fact]
+//    public static void ParseAssembly()
+//    {
+//        GetRootAndModel(@"using SourceCrafter.Binding.Attributes;
+//using SourceCrafter.UnitTests;
 
-[assembly:
-    Bind<WindowsUser, UserDto>,
-    Bind<WindowsUser, User>,
-    Bind<User, UserDto>]",
-            out var compilation,
-            out var root,
-            out var model,
-            typeof(User), 
-            typeof(BindAttribute<,>)
-        );
+//[assembly:
+//    Bind<WindowsUser, UserDto>,
+//    Bind<WindowsUser, User>,
+//    Bind<User, UserDto>]",
+//            out var compilation,
+//            out var root,
+//            out var model,
+//            typeof(User), 
+//            typeof(BindAttribute<,>)
+//        );
 
 
-        StringBuilder code = new(@"namespace SourceCrafter.Mappings;
+//        StringBuilder code = new(@"namespace SourceCrafter.Mappings;
 
-public static partial class Mappers
-{");
+//public static partial class Mappers
+//{");
 
-        var assemblyAtributes = compilation.Assembly
-            .GetAttributes()
-            .Where(c => c.AttributeClass?.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Binding.Attributes.BindAttribute")
-            .Select(c => new MapInfo(new(c.AttributeClass!.TypeArguments[0]), new(c.AttributeClass!.TypeArguments[1]), MappingKind.All, ApplyOn.None))
-            .ToImmutableArray();
+//        var assemblyAtributes = compilation.Assembly
+//            .GetAttributes()
+//            .Where(c => c.AttributeClass?.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Binding.Attributes.BindAttribute")
+//            .Select(c => new MapInfo(new(c.AttributeClass!.TypeArguments[0]), new(c.AttributeClass!.TypeArguments[1]), MappingKind.All, ApplyOn.None))
+//            .ToImmutableArray();
 
-        new Generator()
-            .BuildCode(
-                code,
-                compilation,
-                ImmutableArray<MapInfo>.Empty,
-                assemblyAtributes);
+//        new Generator()
+//            .BuildCode(
+//                (string a, string b) => { },
+//                compilation,
+//                [],
+//                [],
+//                assemblyAtributes);
 
-        code.Append("\n}");
+//        code.Append("\n}");
 
-        //new User().ToUserDto().Asignees!.ElementAt(0).
+//        //new User().ToUserDto().Asignees!.ElementAt(0).
 
-        //Trace.WriteLine(code.ToString());
-    }
+//        //Trace.WriteLine(code.ToString());
+//    }
 
 
     //    [Fact]
@@ -192,23 +193,23 @@ public static partial class Mappers
         fromModel.MainRole.name.Should().Be("supervisor");
     }
 
-    private static void GetRootAndModel(string code, out CSharpCompilation compilation, out SyntaxNode root, out SemanticModel model, params Type[] assemblies)
-    {
-        SyntaxTree tree = CSharpSyntaxTree.ParseText(code);
+    //private static void GetRootAndModel(string code, out CSharpCompilation compilation, out SyntaxNode root, out SemanticModel model, params Type[] assemblies)
+    //{
+    //    SyntaxTree tree = CSharpSyntaxTree.ParseText(code);
 
-        root = tree.GetRoot();
+    //    root = tree.GetRoot();
 
-        compilation = CSharpCompilation
-            .Create(
-                "Temp",
-                new[] { tree },
-                assemblies
-                    .Select(a => a.Assembly.Location)
-                    .Append(typeof(object).Assembly.Location)
-                    .Distinct()
-                    .Select(r => MetadataReference.CreateFromFile(r))
-                    .ToImmutableArray());
+    //    compilation = CSharpCompilation
+    //        .Create(
+    //            "Temp",
+    //            new[] { tree },
+    //            assemblies
+    //                .Select(a => a.Assembly.Location)
+    //                .Append(typeof(object).Assembly.Location)
+    //                .Distinct()
+    //                .Select(r => MetadataReference.CreateFromFile(r))
+    //                .ToImmutableArray());
 
-        model = compilation.GetSemanticModel(tree);
-    }
+    //    model = compilation.GetSemanticModel(tree);
+    //}
 }

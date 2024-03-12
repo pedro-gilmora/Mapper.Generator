@@ -2,13 +2,13 @@
 using SourceCrafter.Bindings.Attributes;
 using System.Transactions;
 using Xunit;
-using SourceCrafter.Mappings;
+using SourceCrafter.Bindings;
 using System.Xml.Linq;
 using FluentAssertions;
 using SourceCrafter.Mvvm.Attributes;
 
 
-namespace SourceCrafter.MappingGenerator.UnitTests
+namespace SourceCrafter.Bindings.UnitTests
 {
     public class FacilCubaTesting
     {

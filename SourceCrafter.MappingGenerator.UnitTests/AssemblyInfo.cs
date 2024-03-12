@@ -1,5 +1,5 @@
 ﻿using SourceCrafter.Bindings.Attributes;
-using SourceCrafter.MappingGenerator.UnitTests;
+using SourceCrafter.Bindings.UnitTests;
 using SourceCrafter.UnitTests;
 
 [assembly:

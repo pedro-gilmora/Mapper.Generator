@@ -2,6 +2,7 @@
 using SourceCrafter.Bindings.Constants;
 using SourceCrafter.MappingGenerator;
 using System;
+using System.Text;
 
 namespace SourceCrafter.Bindings;
 
@@ -25,22 +26,22 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
     internal readonly string
         ToTargetMethodName = (sameType = target.Id == source.Id)
             ? "Copy"
-            : $"To{target.Sanitized}",
+            : $"To{target.SanitizedName}",
         ToSourceMethodName = sameType
             ? "Copy"
-            : $"To{source.Sanitized}",
+            : $"To{source.SanitizedName}",
         TryGetTargetMethodName = sameType
             ? "TryCopy"
-            : $"TryGet{target.Sanitized}",
+            : $"TryGet{target.SanitizedName}",
         TryGetSourceMethodName = sameType
             ? "TryCopy"
-            : $"TryGet{source.Sanitized}",
+            : $"TryGet{source.SanitizedName}",
         FillTargetFromSourceMethodName = sameType
             ? "Update"
-            : $"FillFrom{source.Sanitized}",
+            : $"FillFrom{source.SanitizedName}",
         FillSourceFromTargetMethodName = sameType
             ? "Update"
-            : $"FillFrom{target.Sanitized}";
+            : $"FillFrom{target.SanitizedName}";
 
 
     internal readonly uint
@@ -48,7 +49,7 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
 
     internal bool _rendered = false;
 
-    internal Action? AuxiliarMappings;
+    internal Action<StringBuilder>? AuxiliarMappings;
 
     internal byte
         TargetMaxDepth = 2,
@@ -91,7 +92,7 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
 
     internal int STTMemberCount, TTSMemberCount;
 
-    internal Action? BuildToTargetMethod, BuildToSourceMethod;
+    internal Action<StringBuilder>? BuildToTargetMethod, BuildToSourceMethod;
 
     internal bool HasTargetToSourceMap => HasToSourceScalarConversion || IsCollection is true || TTSMemberCount > 0;
     internal bool HasSourceToTargetMap => HasToTargetScalarConversion || IsCollection is true || STTMemberCount > 0;
@@ -123,19 +124,41 @@ internal class TypeMappingInfo(uint id, TypeData target, TypeData source, bool s
             (target, source) = (source, target);
     }
 
-    internal void BuildMethods()
+    internal void BuildMethods(Action<string, string> addSource)
+    {
+
+        StringBuilder code = new(@"#nullable enable
+namespace SourceCrafter.Bindings;
+
+public static partial class BindingExtensions
+{");
+        var len = code.Length;
+
+        BuildMethods(code);
+
+        if (code.Length == len)
+            return;
+
+        code.Append(@"
+}");
+
+        addSource($"Mappings.{Id}", code.ToString());
+    }
+
+    internal void BuildMethods(StringBuilder code)
     {
         if (CanMap is not true || IsScalar && (!TargetType.IsTupleType || !HasTargetToSourceMap) && (!SourceType.IsTupleType || !HasSourceToTargetMap) || _rendered) return;
 
         _rendered = true;
-
         if (HasSourceToTargetMap)
-            BuildToTargetMethod?.Invoke();
+        {
+            BuildToTargetMethod?.Invoke(code);
+        }
 
         if (!AreSameType && HasTargetToSourceMap)
-            BuildToSourceMethod?.Invoke();
+            BuildToSourceMethod?.Invoke(code);
 
-        AuxiliarMappings?.Invoke();
+        AuxiliarMappings?.Invoke(code);
     }
 }
 

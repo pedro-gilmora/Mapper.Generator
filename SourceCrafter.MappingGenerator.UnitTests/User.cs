@@ -26,7 +26,7 @@ public partial class User //: IUser
     public string? Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
     [Bind(nameof(UserDto.TotalAmount))]
-    public double Balance { get; set; }
+    public double? Balance { get; set; }
     [Max(2)]
     public User[] Asignees { get; set; } = [];
     public Role MainRole { get; set; }

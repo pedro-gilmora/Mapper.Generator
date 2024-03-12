@@ -1,13 +1,16 @@
-﻿using System.Collections.Generic;
+﻿using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis;
+using SourceCrafter.Bindings.Helpers;
 
 
 [assembly: InternalsVisibleTo("SourceCrafter.MappingGenerator.UnitTests")]
 namespace SourceCrafter.Bindings.Helpers
 {
+    public interface IEnum<T> where T : Enum;
+
     public static class Extensions
     {
         private readonly static SymbolDisplayFormat
@@ -68,6 +71,38 @@ namespace SourceCrafter.Bindings.Helpers
 #else
             => typeSymbol is { IsValueType: false, IsTupleType: false, IsReferenceType: true };
 #endif
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static string Wordify(this string identifier, short upper = 0)
+            => ToJoined(identifier, " ", upper);
+
+        static string ToJoined(string identifier, string separator = "-", short casing = 0)
+        {
+            var buffer = new char[identifier.Length * (separator.Length + 1)];
+            var bufferIndex = 0;
+
+            for (int i = 0; i < identifier.Length; i++)
+            {
+                char ch = identifier[i];
+                bool isLetterOrDigit = char.IsLetterOrDigit(ch), isUpper = char.IsUpper(ch);
+
+                if (i > 0 && isUpper && char.IsLower(identifier[i - 1]))
+                {
+                    separator.CopyTo(0, buffer, bufferIndex, separator.Length);
+                    bufferIndex += separator.Length;
+                }
+                if (isLetterOrDigit)
+                {
+                    buffer[bufferIndex++] = (casing, isUpper) switch
+                    {
+                        (1, false) => char.ToUpperInvariant(ch),
+                        (-1, true) => char.ToLowerInvariant(ch),
+                        _ => ch
+                    };
+                }
+            }
+            return new string(buffer, 0, bufferIndex);
+        }
     }
 
 

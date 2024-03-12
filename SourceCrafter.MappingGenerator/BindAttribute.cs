@@ -20,6 +20,9 @@ namespace SourceCrafter.Bindings.Attributes
     [AttributeUsage(AttributeTargets.Field | AttributeTargets.Property, AllowMultiple = true)]
     public sealed class MaxAttribute(short count = 1, ApplyOn ignore = ApplyOn.Both) : Attribute;
 
+    [AttributeUsage(AttributeTargets.Enum, AllowMultiple = true)]
+    public sealed class ExtendAttribute(string ignore = "") : Attribute;
+
     public interface IImplement<IInterface, IImplementation>
         where IImplementation : class, IInterface; 
     
