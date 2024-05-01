@@ -13,10 +13,6 @@
     ```cssharp 
       var typeA = typeB.ToTypeA();
     ```
-  - Explicit conversion operation 
-    ```cssharp 
-      var typeA = (TypeA)typeB;
-    ```
 
 ---
 ## 🏛️ Scenarios
@@ -37,8 +33,8 @@ public static partial class GlobalMappers {
     public static Test.WindowsUser ToWindowsUser(this System.Security.Principal.WindowsIdentity from)
     {
         return new Test.WindowsUser {
-	        Name = from.Name,
-	        IsAuthenticated = from.IsAuthenticated
+		Name = from.Name,
+		IsAuthenticated = from.IsAuthenticated
         };
     }
     public static System.Security.Principal.WindowsIdentity ToWindowsIdentity(this Test.WindowsUser from)
@@ -136,9 +132,9 @@ public partial class WindowsUser
 ```csharp
 namespace Test;
 
-public partial class User
+public static partial class MapperExtensions
 {    
-    public static explicit operator Test.User(Test.UserDto from)
+    public static Test.User ToUser(Test.UserDto from)
     {
         return new Test.User {
 	        FullName = from.FullName,
@@ -146,11 +142,11 @@ public partial class User
 	        Count = from.Count,
 	        Unwanted = from.Unwanted,
 	        DateOfBirth = from.DateOfBirth,
-	        Roles = from.Roles.Select(el => (Role)el).ToList(),
-	        MainRole = (Role)from.MainRole
+	        Roles = ToListOfRole(from.Roles),
+	        MainRole = ToRole(from.MainRole)
         };
     }
-    public static explicit operator Test.UserDto(Test.User from)
+    public static Test.User ToUserDto(Test.User from)
     {
         return new Test.UserDto {
 	        FullName = from.FullName,
@@ -158,29 +154,9 @@ public partial class User
 	        Count = from.Count,
 	        DateOfBirth = from.DateOfBirth,
 	        TotalAmount = (decimal)from.Balance,
-	        Roles = from.Roles.Select(el => ((int, string))el).ToArray(),
-	        MainRole = ((int, string))from.MainRole
+	        Roles = ToArrayOfTupleOfStringString(from.Roles),
+	        MainRole = ToTupleOfStringString(from.MainRole)
         };
-    }
-}
-```
-
-##### `Map<WindowsIdentity>(nameof(GlobalMappers.MapToWindowsIdentity))] public partial class WindowsUser` produces:
-```csharp
-namespace Test;
-
-public partial class WindowsUser
-{    
-    public static explicit operator Test.WindowsUser(System.Security.Principal.WindowsIdentity from)
-    {
-        return new Test.WindowsUser {
-	        Name = from.Name,
-	        IsAuthenticated = from.IsAuthenticated
-        };
-    }
-    public static explicit operator System.Security.Principal.WindowsIdentity(Test.WindowsUser from)
-    {
-        return Test.GlobalMappers.MapToWindowsIdentity(from);
     }
 }
 ```
