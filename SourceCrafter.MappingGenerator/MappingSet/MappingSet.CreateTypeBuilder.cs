@@ -33,10 +33,8 @@ internal sealed partial class MappingSet
             ttsTypeEnd = map.SourceType.IsTupleType ? TUPLE_END : TYPE_END,
             sttTypeStart = map.TargetType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, map.TargetType.NotNullFullName),
             sttTypeEnd = map.TargetType.IsTupleType ? TUPLE_END : TYPE_END,
-            ttsSpacing = map.SourceType.IsTupleType ? " " : @"
-            ",
-            sttSpacing = map.TargetType.IsTupleType ? " " : @"
-            ";
+            ttsSpacing = map.SourceType.IsTupleType ? " " : "\r\n            ",
+            sttSpacing = map.TargetType.IsTupleType ? " " : "\r\n            ";
 
         MemberBuilder
             ttsMembers = null!,
@@ -75,7 +73,8 @@ internal sealed partial class MappingSet
 
             map.RenderedSTTDefaultMethod = true;
 
-            CreateDefaultMethod(code, isSTTRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+            if(target.Type.HasPublicZeroArgsCtor)
+                CreateDefaultMethod(code, isSTTRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
@@ -111,7 +110,8 @@ internal sealed partial class MappingSet
 
             map.RenderedTTSDefaultMethod = true;
 
-            CreateDefaultMethod(code, isTTSRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+            if (source.Type.HasPublicZeroArgsCtor)
+                CreateDefaultMethod(code, isTTSRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
@@ -139,6 +139,7 @@ internal sealed partial class MappingSet
         foreach (var targetItem in targetMembers)
         {
             if (IsNotMappable(targetItem, out var targetMemberType, out var targetTypeId, out var targetMember))
+
                 continue;
 
             foreach (var sourceItem in sourceMembers)
@@ -163,23 +164,24 @@ internal sealed partial class MappingSet
                         map.TargetType.IsRecursive = isSTTRecursive = true;
 
                         hasComplexSTTMembers = true;
+                        
+                        if(target.IsWritable) 
+                            sttMembers += (code, isFill) =>
+                            {
+                                code.Append(BuildTypeMember(
+                                    isFill,
+                                    ref sttComma,
+                                    sttSpacing,
+                                    map.BuildToTargetValue,
+                                    sourceMember,
+                                    targetMember,
+                                    map.ToTargetMethodName,
+                                    map.FillTargetMethodName,
+                                    map.RequiresSTTCall));
 
-                        sttMembers += (code, isFill) =>
-                        {
-                            code.Append(BuildTypeMember(
-                                isFill,
-                                ref sttComma,
-                                sttSpacing,
-                                map.BuildToTargetValue,
-                                sourceMember,
-                                targetMember,
-                                map.ToTargetMethodName,
-                                map.FillTargetMethodName,
-                                map.RequiresSTTCall));
-
-                            if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
-                        };
+                                if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                    map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                            };
                     }
 
                     if (!(toSameType && parentIgnoreSource || ignoreSource || map.SourceType.IsInterface))
@@ -191,23 +193,24 @@ internal sealed partial class MappingSet
 
                         if (sourceMember.IsNullable)
                             map.AddTTSTryGet = true;
+                        
+                        if(source.IsWritable)
+                            ttsMembers += (code, isFill) =>
+                            {
+                                code.Append(BuildTypeMember(
+                                    isFill,
+                                    ref ttsComma,
+                                    ttsSpacing,
+                                    map.BuildToSourceValue,
+                                    targetMember,
+                                    sourceMember,
+                                    map.ToSourceMethodName,
+                                    map.FillSourceMethodName,
+                                    map.RequiresTTSCall));
 
-                        ttsMembers += (code, isFill) =>
-                        {
-                            code.Append(BuildTypeMember(
-                                isFill,
-                                ref ttsComma,
-                                ttsSpacing,
-                                map.BuildToSourceValue,
-                                targetMember,
-                                sourceMember,
-                                map.ToSourceMethodName,
-                                map.FillSourceMethodName,
-                                map.RequiresTTSCall));
-
-                            if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
-                        };
+                                if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                    map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                            };
                     }
 
                     map.CanMap |= map.HasTargetToSourceMap || map.HasTargetToSourceMap;
@@ -216,10 +219,8 @@ internal sealed partial class MappingSet
                 }
 
                 var memberMap = GetOrAddMapper(
-                    new(targetMemberType),
-                    new(sourceMemberType),
-                    targetTypeId,
-                    sourceTypeId);
+                    targetMemberType,
+                    sourceMemberType);
 
                 memberMap = ParseTypesMap(
                     memberMap,
@@ -229,7 +230,13 @@ internal sealed partial class MappingSet
                     sourceMappingPath,
                     targetMappingPath);
 
-                if (memberMap is { CanMap: not false })
+                if (ParseTypesMap(
+                    memberMap,
+                    sourceMember,
+                    targetMember,
+                    ApplyOn.None,
+                    sourceMappingPath,
+                    targetMappingPath) is { CanMap: not false })
                 {
                     targetMember.OwningType = map.TargetType;
                     sourceMember.OwningType = map.SourceType;
@@ -248,22 +255,23 @@ internal sealed partial class MappingSet
                             memberMap.TargetType.IsRecursive |=
                             memberMap.IsCollection is true && memberMap.TargetType.CollectionInfo.ItemDataType.Id == target.Type.Id;
 
-                        sttMembers += (code, isFill) =>
-                        {
-                            code.Append(BuildTypeMember(
-                                isFill,
-                                ref sttComma,
-                                sttSpacing,
-                                memberMap.BuildToTargetValue,
-                                sourceMember,
-                                targetMember,
-                                memberMap.ToTargetMethodName,
-                                memberMap.FillTargetMethodName,
-                                memberMap.RequiresSTTCall));
+                        if(target.IsWritable)
+                            sttMembers += (code, isFill) =>
+                            {
+                                code.Append(BuildTypeMember(
+                                    isFill,
+                                    ref sttComma,
+                                    sttSpacing,
+                                    memberMap.BuildToTargetValue,
+                                    sourceMember,
+                                    targetMember,
+                                    memberMap.ToTargetMethodName,
+                                    memberMap.FillTargetMethodName,
+                                    memberMap.RequiresSTTCall));
 
-                            if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
-                        };
+                                if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                    map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                            };
                     }
 
                     if (!(toSameType || parentIgnoreSource || ignoreSource || map.SourceType.IsInterface))
@@ -280,22 +288,23 @@ internal sealed partial class MappingSet
                             memberMap.SourceType.IsRecursive |=
                             memberMap.IsCollection is true && memberMap.SourceType.CollectionInfo.ItemDataType.Id == source.Type.Id;
 
-                        ttsMembers += (code, isFill) =>
-                        {
-                            code.Append(BuildTypeMember(
-                                isFill,
-                                ref ttsComma,
-                                ttsSpacing,
-                                memberMap.BuildToSourceValue,
-                                targetMember,
-                                sourceMember,
-                                memberMap.ToSourceMethodName,
-                                memberMap.FillSourceMethodName,
-                                memberMap.RequiresTTSCall));
+                        if(source.IsWritable)
+                            ttsMembers += (code, isFill) =>
+                            {
+                                code.Append(BuildTypeMember(
+                                    isFill,
+                                    ref ttsComma,
+                                    ttsSpacing,
+                                    memberMap.BuildToSourceValue,
+                                    targetMember,
+                                    sourceMember,
+                                    memberMap.ToSourceMethodName,
+                                    memberMap.FillSourceMethodName,
+                                    memberMap.RequiresTTSCall));
 
-                            if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
-                        };
+                                if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                    map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                            };
                     }
 
                     if (map.MappingsKind == MappingKind.All && memberMap.MappingsKind != MappingKind.All
@@ -343,7 +352,8 @@ internal sealed partial class MappingSet
     /// </summary>
     /// <param name=""source"">Data source to be mappped</param>{(isRecursive ? $@"
     /// <param name=""depth"">Depth index for recursivity control</param>
-    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : @"
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]")}
     public static {targetFullTypeName} {methodName}(this {sourceFullTypeName} source{(
                 isRecursive
                     ? $@", int depth = 0, int maxDepth = {maxDepth})
@@ -384,8 +394,8 @@ internal sealed partial class MappingSet
     /// </summary>
     /// <param name=""source"">Data source</param>{(isRecursive ? $@"
     /// <param name=""depth"">Depth index for recursivity control</param>
-    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
-    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : @"
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]")}
     public static bool {methodName}(this {sourceFullTypeName} source, out {targetFullTypeName} target{(
                 isRecursive
                     ? $@", int depth = 0, int maxDepth = {maxDepth})
@@ -425,7 +435,8 @@ internal sealed partial class MappingSet
     /// </summary>
     /// <param name=""source"">Data source to be mappped</param>{(isRecursive ? $@"
     /// <param name=""depth"">Depth index for recursivity control</param>
-    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : @"
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]")}
     public static {_ref}{targetFullTypeName} {fillMethodName}({_ref}this {targetFullTypeName} target, {sourceFullTypeName} source{(
                 isRecursive
                     ? $@", int depth = 0, int maxDepth = {maxDepth})

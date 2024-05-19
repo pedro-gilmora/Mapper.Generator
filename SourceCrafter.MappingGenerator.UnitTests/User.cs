@@ -31,6 +31,7 @@ public partial class User //: IUser
     public IEnumerable<User> Asignees { get; set; } = [];
     public Role MainRole { get; set; }
     public User? Supervisor { get; init; }
+    public (string, object)[] ExtendedProperties { get; init; } = [];
     public string[] Phrases { get; set; } = [];
 }
 

@@ -1,4 +1,6 @@
 ﻿using Microsoft.CodeAnalysis;
+using SourceCrafter.Bindings.Helpers;
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -12,11 +14,15 @@ internal sealed class TypeSet(Compilation compilation)
 
     record struct TypeEntry(int Id) { internal TypeData type; internal int next = 0; }
 
-    internal ref TypeData GetOrAdd(TypeMapInfo symbol, int hashCode)
+    internal TypeData GetOrAdd(ITypeSymbol typeSymbol, bool dictionaryOwned = false)
     {
         var entries = _entries;
 
+        var info = GetTypeMapInfo(typeSymbol);
+
         uint collisionCount = 0;
+
+        int hashCode = GetId(info.Implementation ?? info.MembersSource);
 
         ref int bucket = ref GetBucket((uint)hashCode);
 
@@ -33,7 +39,7 @@ internal sealed class TypeSet(Compilation compilation)
 
             if (_intComparer.Equals(entries[i].Id, hashCode))
             {
-                return ref entries[i].type;
+                return entries[i].type;
             }
 
             i = entries[i].next;
@@ -52,7 +58,7 @@ internal sealed class TypeSet(Compilation compilation)
         if (_freeCount > 0)
         {
             index = _freeList;
-            Debug.Assert(-3 - entries[_freeList].next >= -1, "shouldn't overflow because `next` cannot underflow");
+            Debug.Assert(-3 - entries[_freeList].next >= -1, "Shouldn't overflow because [next] cannot underflow");
             _freeList = -3 - entries[_freeList].next;
             _freeCount--;
         }
@@ -68,7 +74,7 @@ internal sealed class TypeSet(Compilation compilation)
             entries = _entries;
         }
 
-        entries[index] = new(hashCode) { type = new(compilation, symbol, hashCode), next = bucket - 1 /* Value in _buckets is 1-based */ };
+        entries[index] = new(hashCode) { type = new(this, compilation, info, hashCode, dictionaryOwned), next = bucket - 1 /* Value in _buckets is 1-based */ };
 
         ref var entry = ref entries[index];
 
@@ -76,8 +82,20 @@ internal sealed class TypeSet(Compilation compilation)
 
         _version++;
 
-        return ref entry.type;
+        return entry.type;
     }
+
+    static TypeImplInfo GetTypeMapInfo(ITypeSymbol targetSymbol)
+    {
+        return targetSymbol is INamedTypeSymbol { } namedSymbol && namedSymbol.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Bindings.Attributes.IImplement"
+            ? new(namedSymbol.TypeArguments[0], namedSymbol.TypeArguments[1])
+            : new(targetSymbol, null);
+    }
+
+    internal static int GetId(ITypeSymbol type) =>
+        MappingSet._comparer.GetHashCode(type.Name == "Nullable"
+            ? ((INamedTypeSymbol)type).TypeArguments[0]
+            : type);
 
     #region Dictionary Implementation
 

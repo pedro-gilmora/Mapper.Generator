@@ -149,7 +149,8 @@ public class TestImplicitMapper
             DateOfBirth = today,
             Count = 5,
             TotalAmount = 45.6m,
-            MainRole = roles[0]
+            MainRole = roles[0],
+            ExtendedProperties = new() { { "A", "A" }, { "C", "D" } }
         };
 
         var fromDto = userDto.ToUser();
@@ -160,9 +161,11 @@ public class TestImplicitMapper
         fromDto.Balance.Should().Be(45.6);
         fromDto.Count.Should().Be(5);
         fromDto.MainRole.Id.Should().Be(0);
+
         fromDto.MainRole.Name.Should().Be("admin");
 
         var userCopy = fromDto.Copy();
+
         userCopy.Age.Should().Be(32);
         userCopy.FirstName.Should().Be("Pedro");
         userCopy.LastName.Should().Be("Gil Mora");
@@ -173,6 +176,7 @@ public class TestImplicitMapper
         userCopy.MainRole.Name.Should().Be("admin");
 
         userCopy.Count = 20;
+
         userCopy.MainRole = userCopy.MainRole with
         {
             Name = "supervisor"

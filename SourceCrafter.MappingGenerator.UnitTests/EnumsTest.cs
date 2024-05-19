@@ -1,20 +1,14 @@
 ﻿//Testing utils
 using Xunit;
-using System.Text;
 
 // Analyzer 
-using SourceCrafter.Bindings;
 
 //Testing purpose
 using FluentAssertions;
-using System.Collections.Immutable;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
 using SourceCrafter.Bindings.Attributes;
 using System.ComponentModel;
 using static SourceCrafter.EnumExtensions.EnumExtensions;
 using SourceCrafter.Bindings.Helpers;
-using SourceCrafter.Bindings.Constants;
 
 namespace SourceCrafter.Bindings.UnitTests;
 
@@ -24,14 +18,14 @@ public class EnumsTest
         NotStartedDesc = "Not Started",
         StoppedDesc = "Transaction was stopped",
         StartedDesc = "Transaction has been started",
-        CancelledDesc = "Transaction has been cancelled",
-        Failure = "Transaction had a failure";
+        CancelledDesc = "Transaction has been cancelled by user",
+        Failure = "Transaction had an external failure";
 
     [Fact]
     public void TestEnums()
     {
         GetDescriptions<IEnum<Status>>().Should().BeEquivalentTo([NotStartedDesc, StoppedDesc, StartedDesc, CancelledDesc, Failure]);
-        
+
         GetNames<IEnum<Status>>().Should().BeEquivalentTo(["NotStarted","Stopped","Started","Cancelled","Failed"]);
 
         Status.Started.GetName().Should().Be("Started");
@@ -72,8 +66,21 @@ public enum Status
     Stopped,
     [Description("Transaction has been started")]
     Started,
-    [Description("Transaction has been cancelled")]
+    [Description("Transaction has been cancelled by user")]
     Cancelled,
-    [Description("Transaction had a failure")]
+    [Description("Transaction had an external failure")]
     Failed
 }
+
+public interface IEnumExt<T> where T : Enum
+{
+}
+
+public interface IEnum2 : IEnumExt<Status>
+{
+    public static string[] GetNames()
+    {
+        return ["1"];
+    }
+}
+

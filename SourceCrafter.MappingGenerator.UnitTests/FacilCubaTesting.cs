@@ -1,5 +1,4 @@
-﻿#nullable disable
-using SourceCrafter.Bindings.Attributes;
+﻿using SourceCrafter.Bindings.Attributes;
 using System.Transactions;
 using Xunit;
 using SourceCrafter.Bindings;
@@ -94,7 +93,9 @@ namespace SourceCrafter.Bindings.UnitTests
     public class UserBase
     {
         /* uuid */
+#pragma warning disable CS8632 // The annotation for nullable reference types should only be used in code within a '#nullable' annotations context.
         public string? Uuid { get; set; }
+#pragma warning restore CS8632 // The annotation for nullable reference types should only be used in code within a '#nullable' annotations context.
         public string Name { get; set; }
         public string LastName { get; set; }
         public string UserName { get; set; }

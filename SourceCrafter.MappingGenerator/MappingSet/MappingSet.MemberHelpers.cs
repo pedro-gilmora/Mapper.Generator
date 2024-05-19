@@ -1,9 +1,13 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+
 using SourceCrafter.Bindings.Constants;
 using SourceCrafter.Bindings.Helpers;
+
 using System;
+using System.Dynamic;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace SourceCrafter.Bindings;
@@ -238,18 +242,21 @@ internal sealed partial class MappingSet
 
     static bool IsNotMappable(ISymbol member, out ITypeSymbol typeOut, out int typeIdOut, out Member memberOut)
     {
-        var isAccesible = member.DeclaredAccessibility is Accessibility.Internal or Accessibility.Public or Accessibility.ProtectedAndInternal or Accessibility.ProtectedOrInternal;
+        var isAccesible = member.DeclaredAccessibility is (Accessibility.Internal 
+            or Accessibility.Public);
 
         switch (member)
         {
             case IPropertySymbol
             {
-                ContainingType.Name: not ("IEnumerator" or "IEnumerator<T>"),
+                ContainingType.Name: not ['I', 'E', 'n', 'u', 'm', 'e', 'r', 'a', 't', 'o', 'r', ..],
                 IsIndexer: false,
                 Type: { } type,
+                RefCustomModifiers: { },
+                IsStatic: false,
                 IsReadOnly: var isReadonly,
                 IsWriteOnly: var isWriteOnly,
-                SetMethod.IsInitOnly: var isInitOnly
+                SetMethod: var setMethod
             }:
                 (typeOut, typeIdOut, memberOut) = (
                     type.AsNonNullable(),
@@ -260,7 +267,7 @@ internal sealed partial class MappingSet
                         isAccesible && !isWriteOnly,
                         isAccesible && !isReadonly,
                         member.GetAttributes(),
-                        isInitOnly == true,
+                        setMethod?.IsInitOnly == true,
                         isAccesible,
                         true));
 
@@ -268,8 +275,9 @@ internal sealed partial class MappingSet
 
             case IFieldSymbol
             {
-                ContainingType.Name: not ("IEnumerator" or "IEnumerator<T>"),
+                ContainingType.Name: not ['I', 'E', 'n', 'u', 'm', 'e', 'r', 'a', 't', 'o', 'r', ..],
                 Type: { } type,
+                IsStatic: false,
                 AssociatedSymbol: null,
                 IsReadOnly: var isReadonly
             }:

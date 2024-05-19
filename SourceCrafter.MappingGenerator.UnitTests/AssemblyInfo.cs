@@ -3,6 +3,7 @@ using SourceCrafter.Bindings.UnitTests;
 using SourceCrafter.UnitTests;
 
 [assembly:
+    //Bind<(string, object)[], Dictionary<string, string>>,
     Bind<IImplement<IAppUser, AppUser>, MeAsUser>,
-    Bind<User, User>,
-    Bind<User, UserDto>]
+    Bind<User, UserDto>
+]

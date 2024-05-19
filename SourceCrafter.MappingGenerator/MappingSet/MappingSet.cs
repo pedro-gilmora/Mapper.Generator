@@ -30,43 +30,67 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
 
     static readonly EqualityComparer<uint> _uintComparer = EqualityComparer<uint>.Default;
 
-    internal static readonly SymbolEqualityComparer
-        _comparer = SymbolEqualityComparer.Default;
+    internal static readonly SymbolEqualityComparer _comparer = SymbolEqualityComparer.Default;
 
-    internal void AddMapper(TypeMapInfo sourceType, TypeMapInfo targetType, ApplyOn ignore, MappingKind mapKind, Action<string, string> addSource)
+    internal void AddMapper(ITypeSymbol sourceType, ITypeSymbol targetType, ApplyOn ignore, MappingKind mapKind, Action<string, string> addSource)
     {
-        ITypeSymbol targetTypeSymbol = targetType.implementation ?? targetType.membersSource,
-            sourceTypeSymbol = sourceType.implementation ?? sourceType.membersSource;
+        TypeData targetTypeData = typeSet.GetOrAdd(targetType),
+            sourceTypeData = typeSet.GetOrAdd(sourceType);
 
-        int targetId = GetId(targetTypeSymbol),
-            sourceId = GetId(sourceTypeSymbol);
+        TypeMappingInfo typeMapping = BuildMap(targetTypeData, sourceTypeData);
 
-        Member
-            target = new(++targetScopeId, "to", targetTypeSymbol.IsNullable()),
-            source = new(--sourceScopeId, "source", sourceTypeSymbol.IsNullable());
+        if (!typeMapping.AreSameType)
+        {
+            BuildMap(targetTypeData, targetTypeData);
+            BuildMap(sourceTypeData, sourceTypeData);
+        }
 
-        var typeMappingInfo = GetOrAddMapper(
-            targetType,
-            sourceType,
-            targetId,
-            sourceId);
+        TypeMappingInfo BuildMap(TypeData targetTypeData, TypeData sourceTypeData)
+        {
 
-        typeMappingInfo.MappingsKind = mapKind;
+            Member 
+                target = new(++targetScopeId, "to", targetType.IsNullable()), 
+                source = new(--sourceScopeId, "source", sourceType.IsNullable());
 
-        typeMappingInfo = ParseTypesMap(
-            typeMappingInfo,
-            source,
-            target,
-            ignore,
-            "+",
-            "+");
+            var typeMapping = GetOrAddMapper(targetTypeData, sourceTypeData);
 
-        typeMappingInfo.BuildMethods(addSource);
+            typeMapping.MappingsKind = mapKind;
+
+            typeMapping = ParseTypesMap(
+                typeMapping,
+                source,
+                target,
+                ignore,
+                "+",
+                "+");
+
+            StringBuilder code = new(@"#nullable enable
+namespace SourceCrafter.Bindings;
+
+public static partial class BindingExtensions
+{");
+            var len = code.Length;
+
+            typeMapping.BuildMethods(code);
+
+            if (code.Length == len)
+                return typeMapping;
+
+            var id = typeMapping.GetMappingHash();
+
+            addSource(id, code.Append(@"
+}").ToString());
+
+
+            return typeMapping;
+        }
     }
 
-    TypeMappingInfo GetOrAddMapper(TypeMapInfo target, TypeMapInfo source, int targetId, int sourceId)
+    TypeMappingInfo GetOrAddMapper(ITypeSymbol target, ITypeSymbol source)
     {
         var entries = _entries;
+
+        int targetId = GetId(target.AsNonNullable()), sourceId = GetId(source.AsNonNullable());
 
         var hashCode = GetId(targetId, sourceId);
 
@@ -92,8 +116,8 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
                 return entry.Info;
             }
 
-            entry.Info.GatherTarget(ref targetTD, targetId);
-            entry.Info.GatherSource(ref sourceTD, sourceId);
+            entry.Info.CollectTarget(ref targetTD!, targetId);
+            entry.Info.CollectSource(ref sourceTD!, sourceId);
 
             i = entry.next;
 
@@ -133,8 +157,84 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
             hashCode,
             bucket - 1,
             new(hashCode,
-                targetTD ??= typeSet.GetOrAdd(target, targetId),
-                sourceTD ??= typeSet.GetOrAdd(source, sourceId)));
+                targetTD ??= typeSet.GetOrAdd(target),
+                sourceTD ??= typeSet.GetOrAdd(source)));
+
+        entry = ref entries[index];
+
+        entry.next = bucket - 1; // Value in _buckets is 1-based
+
+        bucket = index + 1; // Value in _buckets is 1-based
+
+        _version++;
+
+        return entry.Info;
+    }
+
+    TypeMappingInfo GetOrAddMapper(TypeData target, TypeData source)
+    {
+        var entries = _entries;
+
+        var hashCode = GetId(target.Id, source.Id);
+
+        uint collisionCount = 0;
+        ref int bucket = ref GetBucket(hashCode);
+        int i = bucket - 1; // Value in _buckets is 1-based
+
+        ref var entry = ref Unsafe.NullRef<TypeMapping>();
+
+        while (true)
+        {
+            // Should be a while loop https://github.com/dotnet/runtime/issues/9422
+            // Test uint in if rather than loop condition to drop range check for following array access
+            if ((uint)i >= (uint)entries.Length)
+            {
+                break;
+            }
+
+            if (_uintComparer.Equals((entry = ref entries[i]).Id, hashCode))
+            {
+                return entry.Info;
+            }
+
+            entry.Info.CollectTarget(ref target, target.Id);
+            entry.Info.CollectSource(ref source, source.Id);
+
+            i = entry.next;
+
+            collisionCount++;
+
+            if (collisionCount > (uint)entries.Length)
+            {
+                // The chain of entries forms a loop; which means a concurrent update has happened.
+                // Break out of the loop and throw, rather than looping forever.
+                throw new NotSupportedException("Concurrent operations are not allowed");
+            }
+
+
+        }
+
+        int index;
+        if (_freeCount > 0)
+        {
+            index = _freeList;
+            Debug.Assert((-3 - entries[_freeList].next) >= -1, "shouldn't overflow because `next` cannot underflow");
+            _freeList = -3 - entries[_freeList].next;
+            _freeCount--;
+        }
+        else
+        {
+            if (_count == entries.Length)
+            {
+                Resize();
+                bucket = ref GetBucket(hashCode);
+            }
+            index = (int)_count;
+            _count++;
+            entries = _entries;
+        }
+
+        entries[index] = new(hashCode, bucket - 1, new(hashCode, target, source));
 
         entry = ref entries[index];
 
@@ -268,8 +368,8 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
     #endregion
 }
 
-internal readonly record struct TypeMapInfo(ITypeSymbol membersSource, ITypeSymbol? implementation = null);
+internal readonly record struct TypeImplInfo(ITypeSymbol MembersSource, ITypeSymbol? Implementation = null);
 
-internal readonly record struct MapInfo(TypeMapInfo from, TypeMapInfo to, MappingKind mapKind, ApplyOn ignore, bool generate = true);
+internal readonly record struct MapInfo(ITypeSymbol From, ITypeSymbol To, MappingKind MapKind, ApplyOn Ignore, bool Generate = true);
 
-internal readonly record struct CompilationAndAssemblies(Compilation Compilation, ImmutableArray<MapInfo> OverClass, ImmutableArray<MapInfo> Assembly);
+internal readonly record struct CompilationAndAssemblies(Compilation Compilation, ImmutableArray<MapInfo> FromClasses, ImmutableArray<MapInfo> FromAssemblyInfo);

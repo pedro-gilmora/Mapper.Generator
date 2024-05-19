@@ -1,5 +1,6 @@
 ﻿using SourceCrafter.Bindings.Constants;
 using System;
+using System.Collections.Generic;
 using System.Text;
 
 namespace SourceCrafter.Bindings;
@@ -8,24 +9,26 @@ internal sealed partial class MappingSet
 {
 
     private bool CreateCollectionMapBuilders(
+        Member source,
         Member target,
         Member sourceItem,
         Member targetItem,
         bool call,
         CollectionInfo sourceCollInfo,
         CollectionInfo targetCollInfo,
-        CollectionMapping ltrInfo,
+        CollectionMapping collMapInfo,
         ValueBuilder itemValueCreator,
+        KeyValueMappings? keyValueMapping,
         ref ValueBuilder valueCreator,
         ref Action<StringBuilder>? methodCreator)
     {
         string
-            targetFullTypeName = targetCollInfo.DataType.ExportNotNullFullName,
-            sourceFullTypeName = sourceCollInfo.DataType.ExportNotNullFullName,
+            targetFullTypeName = target.Type.ExportNotNullFullName,
+            sourceFullTypeName = source.Type.ExportNotNullFullName,
             targetItemFullTypeName = targetCollInfo.ItemDataType.FullName,
             countProp = sourceCollInfo.CountProp,
-            copyMethodName = ltrInfo.MethodName,
-            updateMethodName = ltrInfo.FillMethodName;
+            copyMethodName = collMapInfo.MethodName,
+            updateMethodName = collMapInfo.FillMethodName;
 
         bool IsRecursive(out int maxDepth)
         {
@@ -39,11 +42,13 @@ internal sealed partial class MappingSet
             return isRecursive;
         }
 
+        bool isFor = collMapInfo.Iterator == "for";
+
         string buildCopy()
         {
             string underlyingCollectionType = $"global::System.Collections.Generic.List<{targetItemFullTypeName}>()";
 
-            (string defaultType, string initType, ValueBuilder returnExpr) = (targetCollInfo.Type, targetCollInfo.DataType.IsInterface) switch
+            (string defaultType, string initType, ValueBuilder returnExpr) = (targetCollInfo.Type, target.Type.IsInterface) switch
             {
                 (EnumerableType.ReadOnlyCollection, true) =>
                     ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, v => $"new global::System.Collections.ObjectModel.ReadOnlyCollection<{targetItemFullTypeName}>({v})"),
@@ -60,6 +65,33 @@ internal sealed partial class MappingSet
                 sourceBang = sourceItem.Bang,
                 defaultSourceBang = sourceItem.DefaultBang;
 
+            if (targetCollInfo.IsDictionary)
+            {
+                return $@"
+    /// <summary>
+    /// Creates a new instance of <see cref=""{targetFullTypeName}""/> based from a given <see cref=""{sourceFullTypeName}""/>
+    /// </summary>
+    /// <param name=""source"">Data source to be mappped</param>{(targetCollInfo.ItemDataType.IsRecursive ? $@"
+    /// <param name=""depth"">Depth index for recursivity control</param>
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : null)}
+    public static {targetFullTypeName} {copyMethodName}(this {sourceFullTypeName} source{(targetCollInfo.ItemDataType.IsRecursive ? $@", int depth = 0, int maxDepth = {target.MaxDepth})
+    {{
+        if (depth >= maxDepth) 
+            return {defaultType};
+" : @")
+    {")}
+        var target = {defaultType};
+        
+        foreach (var item in source)
+        {{
+            target[{keyValueMapping!.Key.Invoke("item")}] = {keyValueMapping!.Value("item")};
+        }}
+
+        return target;
+    }}
+";
+            }
+
             string method = $@"
     /// <summary>
     /// Creates a new instance of <see cref=""{targetFullTypeName}""/> based from a given <see cref=""{sourceFullTypeName}""/>
@@ -70,22 +102,22 @@ internal sealed partial class MappingSet
     public static {targetFullTypeName} {copyMethodName}(this {sourceFullTypeName} source{(targetCollInfo.ItemDataType.IsRecursive ? $@", int depth = 0, int maxDepth = {target.MaxDepth})
     {{
         if (depth >= maxDepth) 
-            return {(ltrInfo.CreateArray
+            return {(collMapInfo.CreateArray
             ? $"global::System.Array.Empty<{targetItemFullTypeName}>()"
             : defaultType
             )};
 " : @")
     {")}
-        {(ltrInfo.CreateArray
-            ? ltrInfo.Redim
+        {(collMapInfo.CreateArray
+            ? collMapInfo.Redim
                 ? $@"int len = 0, aux = 16;
         var target = new {targetItemFullTypeName}[aux];"
-                : $@"int len = source.{countProp};
-        var target = new {targetItemFullTypeName}[len];"
+                : $@"int len = {(isFor ? $"source.{countProp}" : "0")};
+        var target = new {targetItemFullTypeName}[{(isFor ? $"len" : $"source.{countProp}")}];"
             : $@"var target = new {initType};")}
 ";
 
-            if (ltrInfo.Iterator == "for")
+            if (isFor)
             {
                 method += $@"
         for (int i = 0; i < len; i++)
@@ -102,11 +134,11 @@ internal sealed partial class MappingSet
                 method += $@"
         foreach (var item in source)
         {{";
-                if (ltrInfo.CreateArray)
+                if (collMapInfo.CreateArray)
                 {
                     method += $@"
-            target[len{(ltrInfo.Redim ? null : "++")}] = {GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)};";
-                    method += ltrInfo.Redim
+            target[len{(collMapInfo.Redim ? null : "++")}] = {GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)};";
+                    method += collMapInfo.Redim
                         //redim array
                         ? $@"
 
@@ -127,7 +159,7 @@ internal sealed partial class MappingSet
                 else
                 {
                     method += $@"
-            target.{ltrInfo.Method}({GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)});
+            target.{collMapInfo.Method}({GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)});
         }}
 
         return {returnExpr("target")};
@@ -143,7 +175,7 @@ internal sealed partial class MappingSet
         {
             string underlyingCollectionType = $"global::System.Collections.Generic.List<{targetItemFullTypeName}>()";
 
-            (string defaultType, string initType, ValueBuilder returnExpr) = (targetCollInfo.Type, targetCollInfo.DataType.IsInterface) switch
+            (string defaultType, string initType, ValueBuilder returnExpr) = (targetCollInfo.Type, target.Type.IsInterface) switch
             {
                 (EnumerableType.ReadOnlyCollection, true) =>
                     ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, v => $"new global::System.Collections.ObjectModel.ReadOnlyCollection<{targetItemFullTypeName}>({v})"),
@@ -170,7 +202,7 @@ internal sealed partial class MappingSet
     public static {targetFullTypeName} {copyMethodName}(this {sourceFullTypeName} target, {targetFullTypeName} source{(targetCollInfo.ItemDataType.IsRecursive ? $@", int depth = 0, int maxDepth = {target.MaxDepth})
     {{
         if (depth >= maxDepth) 
-            return {(ltrInfo.CreateArray
+            return {(collMapInfo.CreateArray
             ? $"global::System.Array.Empty<{targetItemFullTypeName}>()"
             : defaultType
             )};
@@ -179,15 +211,15 @@ internal sealed partial class MappingSet
 " : $@")
     {{
         ")}
-        {(ltrInfo.CreateArray
-            ? ltrInfo.Redim
+        {(collMapInfo.CreateArray
+            ? collMapInfo.Redim
                 ? $@"int len = 0, aux = 16, "
                 : $@"
         len = source.{countProp};"
             : null)}
 ";
 
-            if (ltrInfo.Iterator == "for")
+            if (isFor)
             {
                 method += $@"
         int oldLen = source.{countProp};
@@ -206,11 +238,11 @@ internal sealed partial class MappingSet
                 method += $@"
         foreach (var item in source)
         {{";
-                if (ltrInfo.CreateArray)
+                if (collMapInfo.CreateArray)
                 {
                     method += $@"
-            target[len{(ltrInfo.Redim ? null : "++")}] = {GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)};";
-                    method += ltrInfo.Redim
+            target[len{(collMapInfo.Redim ? null : "++")}] = {GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)};";
+                    method += collMapInfo.Redim
                         //redim array
                         ? $@"
 
@@ -231,7 +263,7 @@ internal sealed partial class MappingSet
                 else
                 {
                     method += $@"
-            target.{ltrInfo.Method}({GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)});
+            target.{collMapInfo.Method}({GenerateValue("item", itemValueCreator, checkNull, call, target.Type.IsValueType, sourceBang, defaultSourceBang)});
         }}
 
         return {returnExpr("target")};

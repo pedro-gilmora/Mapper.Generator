@@ -1,4 +1,5 @@
 ﻿using Microsoft.CodeAnalysis;
+
 using System;
 using System.Collections.Immutable;
 
@@ -55,5 +56,5 @@ internal sealed record Member(
         }
         return false;
     }
-    public override string ToString() => $"{Name}";
+    public override string ToString() => $"({(Type?.ToString() ?? "?")}) {Name}";
 }

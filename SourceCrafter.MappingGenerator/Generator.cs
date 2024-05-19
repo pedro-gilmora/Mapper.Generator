@@ -35,8 +35,8 @@ public class Generator : IIncrementalGenerator
                         static (targetSymbol, model, attr) =>
                             attr is { AttributeClass.TypeArguments :[{ }  target], ConstructorArguments: [{Value: int mapKind }, {Value: int ignore},..] }
                                 ? new MapInfo(
-                                        GetTypeMapInfo((ITypeSymbol)targetSymbol),
-                                        GetTypeMapInfo(target),
+                                        (ITypeSymbol)targetSymbol,
+                                        target,
                                         (MappingKind)mapKind,
                                         (ApplyOn)ignore)
                                 : default)
@@ -45,11 +45,11 @@ public class Generator : IIncrementalGenerator
                                 context,
                                 "SourceCrafter.Bindings.Attributes.BindAttribute`2",
                                 static n => n is CompilationUnitSyntax,
-                                static (_, model, attr) =>
+                                static (_, model, attr) => 
                                     attr is { AttributeClass.TypeArguments: [{ } target, { } source], ConstructorArguments: [{Value: int mapKind }, {Value: int ignore},..]  }
                                         ? new MapInfo(
-                                            GetTypeMapInfo(target),
-                                            GetTypeMapInfo(source),
+                                            target,
+                                            source,
                                             (MappingKind)mapKind,
                                             (ApplyOn)ignore)
                                         : default)));
@@ -67,13 +67,6 @@ public class Generator : IIncrementalGenerator
         {
             Trace.Write("[SourceCrafter Exception]" + e.ToString());
         }
-    }
-
-    private static TypeMapInfo GetTypeMapInfo(ITypeSymbol targetSymbol)
-    {
-        return targetSymbol is INamedTypeSymbol { } namedSymbol && namedSymbol.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Bindings.Attributes.IImplement"
-            ? new(namedSymbol.TypeArguments[0], namedSymbol.TypeArguments[1])
-            : new(targetSymbol, null);
     }
 
     private void ProcessPosibleMappers(SourceProductionContext ctx, Compilation compilation, ImmutableArray<ITypeSymbol> enums, ImmutableArray<MapInfo> OverClass, ImmutableArray<MapInfo> Assembly)
@@ -100,17 +93,20 @@ public class Generator : IIncrementalGenerator
 
         foreach (var enumType in enums)
         {
-            var type = typeSet
-                .GetOrAdd(GetTypeMapInfo(enumType), MappingSet.GetId(enumType));
+            var type = typeSet.GetOrAdd(enumType);
 
-            StringBuilder code = new(@"#nullable enable
+            StringBuilder code = new();
+            var len = code.Length;
+            
+            type.BuildEnumMethods(code);
+
+            if (len == code.Length) return;
+            
+            code.Insert(0, @"#nullable enable
 namespace SourceCrafter.EnumExtensions;
 
 public static partial class EnumExtensions
-{");
-            type.BuildEnumMethods(code);
-
-            code.Append(@"
+{").Append(@"
 }");
             addSource(type.ExportFullName.Replace("global::", ""), code.ToString());
 
@@ -118,12 +114,12 @@ public static partial class EnumExtensions
         }
 
         foreach (var gctx in Assembly)
-            if (gctx.generate)
-                set.AddMapper(gctx.from, gctx.to, gctx.ignore, gctx.mapKind, addSource);
+            if (gctx.Generate)
+                set.AddMapper(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
 
         foreach (var gctx in classAttributes)
-            if (gctx.generate)
-                set.AddMapper(gctx.from, gctx.to, gctx.ignore, gctx.mapKind, addSource);
+            if (gctx.Generate)
+                set.AddMapper(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
     }
 
     IncrementalValueProvider<ImmutableArray<T>> FindMapperAttributes<T>(

@@ -27,26 +27,27 @@ internal sealed class TypeData
         SanitizedName,
         ExportFullName,
         ExportNotNullFullName;
-
+    private readonly TypeSet _typeSet;
     private readonly Compilation _compilation;
 
-    internal readonly ITypeSymbol _typeSymbol;
+    internal readonly ITypeSymbol _type;
 
-    internal CollectionInfo CollectionInfo = null!;
+    internal readonly CollectionInfo CollectionInfo;
 
-    internal CodeRenderer? NullableMethodUnsafeAccessor;
+    internal MemberCodeRenderer? NullableMethodUnsafeAccessor;
 
-    public HashSet<PropertyCodeRenderer> UnsafePropertyFieldsGetters = new(new PropertyCodeEqualityComparer());
+    public HashSet<PropertyCodeRenderer> UnsafePropertyFieldsGetters = new(PropertyCodeEqualityComparer.Default);
 
     internal readonly bool
-        //IsNullable,
         AllowsNull,
         IsTupleType,
         IsReadOnly,
         IsStruct,
         IsInterface,
         IsValueType,
+        IsKeyValueType,
         IsReference,
+        HasPublicZeroArgsCtor,
         IsPrimitive;
 
     internal bool? IsIterable;
@@ -58,51 +59,54 @@ internal sealed class TypeData
     readonly HashSet<ISymbol>? _members;
 
     internal readonly Func<HashSet<ISymbol>> _membersRetriever;
+    internal readonly bool DictionaryOwned;
+    ImmutableArray<IFieldSymbol>? _tupleMembers;
 
-    IEnumerable<IFieldSymbol>? _tupleMembers;
-
-    internal IEnumerable<ISymbol> Members =>
+    internal HashSet<ISymbol> Members =>
         _members ?? _membersRetriever();
 
-    internal IEnumerable<IFieldSymbol> TupleElements =>
-        _tupleMembers ??= ((INamedTypeSymbol)_typeSymbol).TupleElements.AsEnumerable();
+    internal ImmutableArray<IFieldSymbol> TupleElements =>
+        _tupleMembers ??= ((INamedTypeSymbol)_type).TupleElements;
 
-    internal TypeData(Compilation compilation, TypeMapInfo typeMapInfo, int typeId)
+    internal TypeData(TypeSet typeSet, Compilation compilation, TypeImplInfo typeMapInfo, int typeId, bool dictionaryOwned)
     {
-        var type = typeMapInfo.implementation ?? typeMapInfo.membersSource;
-
+        var type = typeMapInfo.Implementation ?? typeMapInfo.MembersSource;
+        _typeSet = typeSet;
         _compilation = compilation;
+
         Id = typeId;
+
+        DictionaryOwned = dictionaryOwned;
 
         if (type.IsNullable())
         {
             type = ((INamedTypeSymbol)type).TypeArguments[0];
             FullName = type.ToGlobalNamespace() + "?";
 
-            var preceedingNamespace = typeMapInfo.implementation?.ContainingNamespace?.ToString() == "<global namespace>"
-                ? typeMapInfo.membersSource.ToGlobalNamespace() + "."
+            var preceedingNamespace = typeMapInfo.Implementation?.ContainingNamespace?.ToString() == "<global namespace>"
+                ? typeMapInfo.MembersSource.ToGlobalNamespace() + "."
                 : null;
 
             NotNullFullName = FullName = preceedingNamespace + type.ToGlobalNamespace() + "?";
 
-            ExportFullName = (ExportNotNullFullName = typeMapInfo.membersSource?.AsNonNullable() is { } memSource
+            ExportFullName = (ExportNotNullFullName = typeMapInfo.MembersSource?.AsNonNullable() is { } memSource
                 ? memSource.ToGlobalNamespace()
                 : FullName) + "?";
         }
         else
         {
-            var preceedingNamespace = typeMapInfo.implementation?.ContainingNamespace?.ToString() == "<global namespace>"
-                ? typeMapInfo.membersSource.ContainingNamespace.ToGlobalNamespace() + "."
+            var preceedingNamespace = typeMapInfo.Implementation?.ContainingNamespace?.ToString() == "<global namespace>"
+                ? typeMapInfo.MembersSource.ContainingNamespace.ToGlobalNamespace() + "."
                 : null;
 
             NotNullFullName = FullName = preceedingNamespace + type.ToGlobalNamespace();
 
-            ExportFullName = (ExportNotNullFullName = typeMapInfo.membersSource?.AsNonNullable() is { } memSource
+            ExportFullName = (ExportNotNullFullName = typeMapInfo.MembersSource?.AsNonNullable() is { } memSource
                 ? memSource.ToGlobalNamespace()
                 : FullName);
         }
 
-        _membersRetriever = () => GetAllMembers(typeMapInfo.membersSource!); ;
+        _membersRetriever = () => GetAllMembers(typeMapInfo.MembersSource);
 
         SanitizedName = SanitizeTypeName(type);
         AllowsNull = type.AllowsNull();
@@ -110,27 +114,38 @@ internal sealed class TypeData
         ExportNonGenericFullName = type.ToGlobalNonGenericNamespace();
         IsTupleType = type.IsTupleType;
         IsValueType = type.IsValueType;
+        IsKeyValueType = NonGenericFullName.Length > 12 && NonGenericFullName[^12..] is "KeyValuePair";
         IsStruct = type.TypeKind is TypeKind.Struct or TypeKind.Structure;
         IsPrimitive = type.IsPrimitive();
         IsReadOnly = type.IsReadOnly;
         IsInterface = type.TypeKind == TypeKind.Interface;
         IsReference = type.IsReferenceType;
 
-        _typeSymbol = type;
+        HasPublicZeroArgsCtor = 
+            (type is INamedTypeSymbol { InstanceConstructors: { Length: > 0 } ctors } 
+             && ctors.FirstOrDefault(ctor => ctor.Parameters.IsDefaultOrEmpty)?
+                    .DeclaredAccessibility is null or Accessibility.Public or Accessibility.Internal)
+            || typeMapInfo.Implementation?.Kind is SymbolKind.ErrorType;
+
+        _type = type;
+
+        IsIterable = IsEnumerableType(NonGenericFullName, type, out CollectionInfo);
     }
 
     internal bool HasConversionTo(TypeData source, out bool exists, out bool isExplicit)
     {
-        var sourceTS = source._typeSymbol.AsNonNullable();
+        if (IsTupleType || source.IsTupleType) return exists = isExplicit = false;
 
-        var conversion = _compilation.ClassifyConversion(_typeSymbol, sourceTS);
+        var sourceTS = source._type.AsNonNullable();
+
+        var conversion = _compilation.ClassifyConversion(_type, sourceTS);
 
         exists = conversion is { Exists: true, IsReference: false };
 
         isExplicit = conversion.IsExplicit;
 
         if (!exists && !isExplicit)
-            exists = isExplicit = _typeSymbol
+            exists = isExplicit = _type
                 .GetMembers()
                 .Any(m => m is IMethodSymbol
                 {
@@ -138,13 +153,13 @@ internal sealed class TypeData
                     Parameters: [{ Type: { } firstParam }],
                     ReturnType: { } returnType
                 }
-                    && MappingSet.AreTypeEquals(returnType, _typeSymbol)
+                    && MappingSet.AreTypeEquals(returnType, _type)
                     && MappingSet.AreTypeEquals(firstParam, sourceTS));
 
         return exists;
     }
 
-    HashSet<ISymbol> GetAllMembers(ITypeSymbol type)
+    HashSet<ISymbol> GetAllMembers(ITypeSymbol? type)
     {
         HashSet<ISymbol> members = new(PropertyTypeEqualityComparer.Default);
 
@@ -153,18 +168,19 @@ internal sealed class TypeData
             foreach (var i in type.GetMembers())
                 members.Add(i);
 
-            type = type.BaseType!;
+            type = type.BaseType;
         }
 
         return members;
     }
 
-    internal bool Equals(TypeData obj) => MappingSet._comparer.Equals(_typeSymbol, obj._typeSymbol);
+    internal bool Equals(TypeData obj) => MappingSet._comparer.Equals(_type, obj._type);
 
     public override string ToString() => FullName;
 
     class PropertyCodeEqualityComparer : IEqualityComparer<PropertyCodeRenderer>
     {
+        internal readonly static PropertyCodeEqualityComparer Default = new();
         public bool Equals(PropertyCodeRenderer x, PropertyCodeRenderer y)
         {
             return x.Key == y.Key;
@@ -186,8 +202,8 @@ internal sealed class TypeData
                 return type.Name + "Of" + string.Join("", args.Select(SanitizeTypeName));
             default:
                 string typeName = type.ToTypeNameFormat();
-                if (typeName.EndsWith("[]"))
-                    typeName = typeName[..^2] + "Array";
+                if (type is IArrayTypeSymbol { ElementType: { } elType })
+                    typeName = SanitizeTypeName(elType) + "Array";
                 return char.ToUpperInvariant(typeName[0]) + typeName[1..].TrimEnd('?', '_');
         };
     }
@@ -221,33 +237,31 @@ internal sealed class TypeData
             string descriptionStr = GetEnumDescription(m);
 
             descriptions += collectionsComma + descriptionStr;
-           
+
             names += collectionsComma + "nameof(" + fullMemberName + ")";
-            
+
             name += caseComma + "case " + fullMemberName + ": return nameof(" + fullMemberName + ");";
-            
+
             description += caseComma + "case " + fullMemberName + @": 
                 return " + descriptionStr + ";";
-            
+
             string distinctIntCase = "case " + Convert.ToString(m.ConstantValue!);
 
-            if(!definedByInt.Contains(distinctIntCase))
+            if (!definedByInt.Contains(distinctIntCase))
             {
-                definedByInt += caseComma + distinctIntCase  + @": 
-                return true;";
+                definedByInt += caseComma + distinctIntCase + ":";
             }
 
-            definedByName += caseComma + "case nameof(" + fullMemberName + @"): 
-                return true;";
-            
+            definedByName += caseComma + "case nameof(" + fullMemberName + "):";
+
             tryGetValue += caseComma + "case nameof(" + fullMemberName + @"): 
                 result = " + fullMemberName + @"; 
                 return true;";
-            
+
             tryGetName += caseComma + "case " + fullMemberName + @": 
                 result = nameof(" + fullMemberName + @"); 
                 return true;";
-            
+
             tryGetDesc += caseComma + "case " + fullMemberName + @": 
                 result = " + descriptionStr + @"; 
                 return true;";
@@ -298,7 +312,9 @@ internal sealed class TypeData
 		switch(value)
         {{
             {7}
-            default: return false; 
+                return true; 
+            default: 
+                return false; 
         }}
     }}
 
@@ -307,7 +323,9 @@ internal sealed class TypeData
         switch(value)
         {{
             {8}
-            default: return false; 
+                return true;
+            default: 
+                return false; 
         }}
     }}
 
@@ -353,45 +371,171 @@ internal sealed class TypeData
         string MemberFullName(IFieldSymbol m) => NotNullFullName + "." + m.Name;
     }
 
-    private string GetEnumDescription(IFieldSymbol m)
+    internal void BuildKeyValuePair(StringBuilder sb, string _params)
     {
-        return "\"" + (m
-            .GetAttributes()
-            .FirstOrDefault(a => a.AttributeClass?.ToGlobalNamespace() == "global::System.ComponentModel.DescriptionAttribute")
-            ?.ConstructorArguments[0].Value?.ToString() ?? m.Name.Wordify()) + "\"";
+        sb.AppendFormat("new {0}({1})", NonGenericFullName, _params);
     }
+
+    internal void BuildTuple(StringBuilder sb, string _params)
+    {
+        sb.AppendFormat("({0})", _params);
+    }
+
+    internal void BuildType(StringBuilder sb, string props)
+    {
+        sb.AppendFormat(@"new {0}
+        {{{1}
+        }}", NotNullFullName, props);
+    }
+
+    private string GetEnumDescription(IFieldSymbol m) => $@"""{m
+        .GetAttributes()
+        .FirstOrDefault(a => a.AttributeClass?.ToGlobalNamespace() is "global::System.ComponentModel.DescriptionAttribute")
+        ?.ConstructorArguments.FirstOrDefault().Value?.ToString() ?? m.Name.Wordify()}""";
 
     private class PropertyTypeEqualityComparer : IEqualityComparer<ISymbol>
     {
-        internal static PropertyTypeEqualityComparer Default = new();
+        internal readonly static PropertyTypeEqualityComparer Default = new();
 
-        public bool Equals(ISymbol x, ISymbol y)
+        public bool Equals(ISymbol x, ISymbol y) => GetKey(x) == GetKey(y);
+
+        private string GetKey(ISymbol x) => MappingSet._comparer.GetHashCode(x) + "|" + x.ToNameOnly();
+
+        public int GetHashCode(ISymbol obj) => GetKey(obj).GetHashCode();
+    }
+
+    bool IsEnumerableType(string nonGenericFullName, ITypeSymbol type, out CollectionInfo info)
+    {
+        if (type.IsPrimitive(true))
         {
-            return GetKey(x) == GetKey(y);
+            info = default!;
+            return false;
         }
 
-        private string GetKey(ISymbol x)
+        switch (nonGenericFullName)
         {
-            return MappingSet._comparer.GetHashCode(x) + "|" + x.ToNameOnly();
+            case "global::System.Collections.Generic.Dictionary" or "global::System.Collections.Generic.IDictionary"
+            :
+                info = GetCollectionInfo(EnumerableType.Dictionary, GetEnumerableType(type, true));
+
+                return true;
+
+            case "global::System.Collections.Generic.Stack"
+            :
+                info = GetCollectionInfo(EnumerableType.Stack, GetEnumerableType(type));
+
+                return true;
+
+            case "global::System.Collections.Generic.Queue"
+            :
+                info = GetCollectionInfo(EnumerableType.Queue, GetEnumerableType(type));
+
+                return true;
+
+            case "global::System.ReadOnlySpan"
+            :
+
+                info = GetCollectionInfo(EnumerableType.ReadOnlySpan, GetEnumerableType(type));
+
+                return true;
+
+            case "global::System.Span"
+            :
+                info = GetCollectionInfo(EnumerableType.Span, GetEnumerableType(type));
+
+                return true;
+
+            case "global::System.Collections.Generic.ICollection" or
+                "global::System.Collections.Generic.IList" or
+                "global::System.Collections.Generic.List"
+            :
+                info = GetCollectionInfo(EnumerableType.Collection, GetEnumerableType(type));
+
+                return true;
+
+            case "global::System.Collections.Generic.IReadOnlyList" or
+                "global::System.Collections.Generic.ReadOnlyList" or
+                "global::System.Collections.Generic.IReadOnlyCollection" or
+                "global::System.Collections.Generic.ReadOnlyCollection"
+            :
+                info = GetCollectionInfo(EnumerableType.ReadOnlyCollection, GetEnumerableType(type));
+
+                return true;
+
+            case "global::System.Collections.Generic.IEnumerable"
+            :
+                info = GetCollectionInfo(EnumerableType.Enumerable, GetEnumerableType(type));
+
+                return true;
+
+            default:
+                if (type is IArrayTypeSymbol { ElementType: { } elType })
+                {
+                    info = GetCollectionInfo(EnumerableType.Array, elType);
+
+                    return true;
+                }
+                else
+                    foreach (var item in type.AllInterfaces)
+                        if (IsEnumerableType(item.ToGlobalNonGenericNamespace(), item, out info))
+                            return true;
+                break;
         }
 
-        public int GetHashCode(ISymbol obj)
+        info = default!;
+
+        return false;
+    }
+
+    ITypeSymbol GetEnumerableType(ITypeSymbol enumerableType, bool isDictionary = false)
+    {
+        if (isDictionary)
+            return ((INamedTypeSymbol)enumerableType)
+                .AllInterfaces
+                .First(i => i.Name.StartsWith("IEnumerable"))
+                .TypeArguments
+                .First();
+
+        return ((INamedTypeSymbol)enumerableType)
+            .TypeArguments
+            .First();
+    }
+
+    private CollectionInfo GetCollectionInfo(EnumerableType enumerableType, ITypeSymbol typeSymbol)
+    {
+        typeSymbol = typeSymbol.AsNonNullable();
+
+        TypeData itemDataType = _typeSet.GetOrAdd(typeSymbol, enumerableType == EnumerableType.Dictionary);
+
+        return enumerableType switch
         {
-            return GetKey(obj).GetHashCode();
-        }
+#pragma warning disable format
+            EnumerableType.Dictionary =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, true,  true,   false,  "Add",      "Count"),
+            EnumerableType.Queue =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), false, true, true,   false,  "Enqueue",  "Count"),
+            EnumerableType.Stack =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), false, true, true,   false,  "Push",     "Count"),
+            EnumerableType.Enumerable =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), false, true, false,  true,   null,       "Length"),
+            EnumerableType.ReadOnlyCollection =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, true,  true,   false,  "Add",      "Count"),
+            EnumerableType.ReadOnlySpan =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, true,  true,   true,   null,       "Length"),
+            EnumerableType.Collection =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, false, true,   false,  "Add",      "Count"),
+            EnumerableType.Span =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, false, true,   true,   null,       "Length"),
+            _ =>
+                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, false, true,   true,   null,       "Length")
+#pragma warning restore format
+        };
     }
 }
 
-internal record struct IterableInfo(
-    TypeData ItemDataType,
-    EnumerableType Type,
-    bool IsItemTypeNullable,
-    string? AddMethod,
-    string? CountProperty,
-    bool Initialized);
+internal record PropertyCodeRenderer(string Key, string Code) : MemberCodeRenderer(Code);
 
-internal record PropertyCodeRenderer(string Key, string Code) : CodeRenderer(Code);
-internal record CodeRenderer(string Code)
+internal record MemberCodeRenderer(string Code)
 {
     internal bool Rendered { get; set; }
 

@@ -38,7 +38,7 @@ namespace SourceCrafter.Bindings.Helpers
         internal static string ToNameOnly(this ISymbol t) => t.ToDisplayString(_symbolNameOnly);
         
         internal static bool IsPrimitive(this ITypeSymbol target, bool includeObject = true) =>
-            target.SpecialType is SpecialType.System_Enum
+            (includeObject && target.SpecialType is SpecialType.System_Object) || target.SpecialType is SpecialType.System_Enum
                 or SpecialType.System_Boolean
                 or SpecialType.System_Byte
                 or SpecialType.System_SByte
