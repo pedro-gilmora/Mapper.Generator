@@ -5,6 +5,7 @@ using SourceCrafter.Bindings.Helpers;
 
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Text;
 
 namespace SourceCrafter.Bindings;
@@ -64,7 +65,7 @@ internal sealed partial class MappingSet
             //target.ItemDataType = itemMap.TargetType;
             //source.ItemDataType = itemMap.SourceType;
 
-            if (itemMap.CanMap is false || 
+            if (itemMap.CanMap is false ||
                 !(source.Type.CollectionInfo.ItemDataType.HasPublicZeroArgsCtor && target.Type.CollectionInfo.ItemDataType.HasPublicZeroArgsCtor))
             {
                 map.CanMap = map.IsCollection = false;
@@ -122,223 +123,196 @@ internal sealed partial class MappingSet
 
             return map;
         }
-        else
+
+        var canMap = false;
+
+        bool isSourceObject = map.SourceType.NonGenericFullName == "object",
+            isTargetObject = map.TargetType.NonGenericFullName == "object";
+
+        if (!(map.SourceType is not { DictionaryOwned: false, IsKeyValueType: false }
+            || map.TargetType is not { DictionaryOwned: false, IsKeyValueType: false }
+            || !map.SourceType.HasConversionTo(map.TargetType, out var exists, out var isExplicit)
+            & !map.TargetType.HasConversionTo(map.SourceType, out var reverseExists, out var isReverseExplicit)
+            && !isSourceObject & !isTargetObject))
         {
-            var canMap = false;
+            var isObjectMap = isSourceObject || isTargetObject;
 
-            bool isSourceObject = map.SourceType.NonGenericFullName == "object",
-                isTargetObject = map.TargetType.NonGenericFullName == "object";
+            isExplicit |= isSourceObject && !isTargetObject;
+            isReverseExplicit |= !isSourceObject && isTargetObject;
 
-            if (!(map.SourceType is not { DictionaryOwned: false, IsKeyValueType: false }
-                || map.TargetType is not { DictionaryOwned: false, IsKeyValueType: false }
-                || !map.SourceType.HasConversionTo(map.TargetType, out var exists, out var isExplicit)
-                & !map.TargetType.HasConversionTo(map.SourceType, out var reverseExists, out var isReverseExplicit)
-                && !isSourceObject & !isTargetObject))
+            if (ignore is not ApplyOn.Target or ApplyOn.Both && (exists || isObjectMap))
             {
-                var isObjectMap = isSourceObject || isTargetObject;
+                var scalar = isExplicit
+                    ? $@"({map.TargetType.FullName}){{0}}"
+                    : $@"{{0}}";
 
-                isExplicit |= isSourceObject && !isTargetObject;
-                isReverseExplicit |= !isSourceObject && isTargetObject;
+                map.BuildToTargetValue = value => scalar.Replace("{0}", value);
 
-                if (ignore is not ApplyOn.Target or ApplyOn.Both && (exists || isObjectMap))
-                {
-                    var scalar = isExplicit
-                        ? $@"({map.TargetType.FullName}){{0}}"
-                        : $@"{{0}}";
-
-                    map.BuildToTargetValue = value => scalar.Replace("{0}", value);
-
-                    canMap = map.HasToTargetScalarConversion = true;
-                }
-
-                if (ignore is not ApplyOn.Source or ApplyOn.Both && (reverseExists || isObjectMap))
-                {
-                    var scalar = isReverseExplicit
-                        ? $@"({map.SourceType.FullName}){{0}}"
-                        : $@"{{0}}";
-
-                    map.BuildToSourceValue = value => scalar.Replace("{0}", value);
-
-                    canMap = map.HasToTargetScalarConversion = true;
-                }
-
-                map.JustFill = canMap;
+                canMap = map.HasToTargetScalarConversion = true;
             }
 
-            if (map.TargetType.IsPrimitive || map.SourceType.IsPrimitive)
+            if (ignore is not ApplyOn.Source or ApplyOn.Both && (reverseExists || isObjectMap))
             {
-                map.CanMap = canMap;
+                var scalar = isReverseExplicit
+                    ? $@"({map.SourceType.FullName}){{0}}"
+                    : $@"{{0}}";
+
+                map.BuildToSourceValue = value => scalar.Replace("{0}", value);
+
+                canMap = map.HasToSourceScalarConversion = true;
+            }
+        }
+
+        if (map.TargetType.IsPrimitive || map.SourceType.IsPrimitive)
+        {
+            map.CanMap = canMap;
+            return map;
+        }
+
+        switch (map)
+        {
+            case { TargetType: { DictionaryOwned: true, IsKeyValueType: true } } or { SourceType: { DictionaryOwned: true, IsKeyValueType: true } }:
+                CreateKeyValueMapBuilder(map);
                 return map;
-            }
-
-            switch (map)
-            {
-                case { TargetType: { DictionaryOwned: true, IsKeyValueType: true } } or { SourceType: { DictionaryOwned: true, IsKeyValueType: true } }:
-
-                    ISymbol sourceKey, sourceValue, targetKey, targetValue;
-
-                    switch ((
-                        map.SourceType is { IsTupleType: true, TupleElements: { IsDefaultOrEmpty: false, Length: 2 } }, 
-                        map.TargetType is { IsTupleType: true, TupleElements: { IsDefaultOrEmpty: false, Length: 2 } }
-                    ))
-                    {
-                        case (false, false):
-                            GetKeyValueProps(map.SourceType.Members, out sourceKey, out sourceValue);
-                            GetKeyValueProps(map.TargetType.Members, out targetKey, out targetValue);
-                            break;
-                        case (false, true):
-                            GetKeyValueProps(map.SourceType.Members, out sourceKey, out sourceValue);
-                            (targetKey, targetValue) = (map.TargetType.TupleElements[0], map.TargetType.TupleElements[1]);
-                            if (targetValue is IFieldSymbol { IsExplicitlyNamedTupleElement: true } && targetValue.Name.ToLower().Contains("key"))
-                                (targetValue, targetKey) = (targetKey, targetValue);
-                            break;
-                        case (true, false):
-                            GetKeyValueProps(map.TargetType.Members, out sourceKey, out sourceValue);
-                            (targetKey, targetValue) = (map.SourceType.TupleElements[0], map.SourceType.TupleElements[1]);
-                            if (targetValue is IFieldSymbol { IsExplicitlyNamedTupleElement: true } && targetValue.Name.ToLower().Contains("key"))
-                                (targetValue, targetKey) = (targetKey, targetValue);
-                            break;
-                        default:
-                            sourceKey = sourceValue = targetKey = targetValue = null!;
-                            map.CanMap = false;
-                            return map;
-                    }
-                    CreateKeyValueMapBuilder(map.SourceType, map.ToSourceMethodName, map.TargetType, map.ToTargetMethodName, sourceKey, sourceValue, targetKey, targetValue, ref map.BuildToTargetMethod, ref map.BuildToTargetValue, ref map.BuildToSourceMethod, ref map.BuildToSourceValue, ref map.STTKeyValueMapping, ref map.TTSKeyValueMapping);
-                    return map;
-                case ({ TargetType.IsTupleType: true, SourceType.IsTupleType: true }):
-                    CreateTypeMapBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.TupleElements, map.TargetType.TupleElements);
-                    return map;
-                case ({ TargetType.IsTupleType: true, SourceType.IsTupleType: false }):
-                    CreateTypeMapBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.TupleElements);
-                    return map;
-                case ({ TargetType.IsTupleType: false, SourceType.IsTupleType: true }):
-                    CreateTypeMapBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.TupleElements, map.TargetType.Members);
-                    return map;
-                default:
-                    CreateTypeMapBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.Members);
-                    return map;
-            }
+            default:
+                CreateTypeMapBuilders(map, ignore, sourceMappingPath, targetMappingPath, source, target, map.SourceType.Members, map.TargetType.Members);
+                return map;
         }
 
         void CreateKeyValueMapBuilder
         (
-            TypeData sourceType,
-            string toSourceMethod,
-            TypeData targetType,
-            string toTargetMethod,
-            ISymbol sourceKey,
-            ISymbol sourceValue,
-            ISymbol targetKey,
-            ISymbol targetValue,
-            ref Action<StringBuilder>? buildToTargetMethod,
-            ref ValueBuilder buildToTargetValue,
-            ref Action<StringBuilder>? buildToSourceMethod,
-            ref ValueBuilder buildToSourceValue,
-            ref KeyValueMappings? sttMap,
-            ref KeyValueMappings? ttsMap)
+            TypeMappingInfo map)
         {
+            Member sourceKeyMember, sourceValueMember, targetKeyMember, targetValueMember;
 
-            if (IsNotMappable(sourceKey, out var sourceKeyTypeSymbol, out var keyPropTypeId, out var sourceKeyMember) ||
-                IsNotMappable(sourceValue, out var sourceValueTypeSymbol, out var keyFieldTypeId, out var sourceValueMember) ||
-                IsNotMappable(targetKey, out var targetKeyTypeSymbol, out var valuePropTypeId, out var targetKeyMember) ||
-                IsNotMappable(targetValue, out var targetValueTypeSymbol, out var valueFieldTypeId, out var targetValueMember))
+            switch ((
+                map.SourceType is { IsTupleType: true, Members.Length: 2 },
+                map.TargetType is { IsTupleType: true, Members.Length: 2 }
+            ))
             {
-                map.CanMap = false;
+                case (false, false):
+                    GetKeyValueProps(map.SourceType.Members, out sourceKeyMember, out sourceValueMember);
+                    GetKeyValueProps(map.TargetType.Members, out targetKeyMember, out targetValueMember);
+                    break;
+                case (false, true):
+                    GetKeyValueProps(map.SourceType.Members, out sourceKeyMember, out sourceValueMember);
+
+                    (targetKeyMember, targetValueMember) = (map.TargetType.Members[0], map.TargetType.Members[1]);
+
+                    if (targetValueMember.Name.ToLower().Contains("key"))
+                        (targetValueMember, targetKeyMember) = (targetKeyMember, targetValueMember);
+
+                    break;
+                case (true, false):
+                    GetKeyValueProps(map.TargetType.Members, out sourceKeyMember, out sourceValueMember);
+
+                    (targetKeyMember, targetValueMember) = (map.SourceType.Members[0], map.SourceType.Members[1]);
+
+                    if (targetValueMember.Name.ToLower().Contains("key"))
+                        (targetValueMember, targetKeyMember) = (targetKeyMember, targetValueMember);
+
+                    break;
+                default:
+                    sourceKeyMember = sourceValueMember = targetKeyMember = targetValueMember = null!;
+                    map.CanMap = false;
+                    return;
             }
-            else
-            {
-                TypeData 
-                    sourceKeyType = sourceKeyMember.Type = typeSet.GetOrAdd(sourceKeyTypeSymbol),
-                    sourceValueType = sourceValueMember.Type = typeSet.GetOrAdd(sourceValueTypeSymbol),
-                    targetKeyType = targetKeyMember.Type = typeSet.GetOrAdd(targetKeyTypeSymbol),
-                    targetValueType = targetValueMember.Type = typeSet.GetOrAdd(targetValueTypeSymbol);
 
-                TypeMappingInfo
-                    keyMapping = GetOrAddMapper(sourceKeyType, targetKeyType),
-                    valueMapping = GetOrAddMapper(sourceValueType, targetValueType); 
+            TypeData
+                sourceKeyType = sourceKeyMember.Type,
+                sourceValueType = sourceValueMember.Type,
+                targetKeyType = targetKeyMember.Type,
+                targetValueType = targetValueMember.Type;
 
-                keyMapping = ParseTypesMap(keyMapping, sourceValueMember, sourceKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
-                valueMapping = ParseTypesMap(valueMapping, targetValueMember, targetKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
+            TypeMappingInfo
+                keyMapping = GetOrAddMapper(sourceKeyType, targetKeyType),
+                valueMapping = GetOrAddMapper(sourceValueType, targetValueType);
 
-                if(keyMapping.CanMap is false && valueMapping.CanMap is false) map.CanMap = false;
+            keyMapping = ParseTypesMap(keyMapping, sourceValueMember, sourceKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
+            valueMapping = ParseTypesMap(valueMapping, targetValueMember, targetKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
 
-                var checkKeyPropNull = (!sourceKeyMember.IsNullable || !sourceKeyMember.Type.IsStruct) && sourceValueMember.IsNullable;
-                var checkValuePropNull = (!targetKeyMember.IsNullable || !targetKeyMember.Type.IsStruct) && targetValueMember.IsNullable;
+            if (keyMapping.CanMap is false && valueMapping.CanMap is false) map.CanMap = false;
 
-                var checkKeyFieldNull = (!sourceValueMember.IsNullable || !sourceValueMember.Type.IsStruct) && sourceKeyMember.IsNullable;
-                var checkValueFieldNull = (!targetValueMember.IsNullable || !targetValueMember.Type.IsStruct) && targetKeyMember.IsNullable;
+            var checkKeyPropNull = (!sourceKeyMember.IsNullable || !sourceKeyMember.Type.IsStruct) && sourceValueMember.IsNullable;
+            var checkValuePropNull = (!targetKeyMember.IsNullable || !targetKeyMember.Type.IsStruct) && targetValueMember.IsNullable;
 
-                string keyPropName = sourceKeyMember.Name,
-                    valuePropName = targetKeyMember.Name,
-                    targetKeyFieldName = sourceValueMember.Name,
-                    targetValueFieldName = targetValueMember.Name;
+            var checkKeyFieldNull = (!sourceValueMember.IsNullable || !sourceValueMember.Type.IsStruct) && sourceKeyMember.IsNullable;
+            var checkValueFieldNull = (!targetValueMember.IsNullable || !targetValueMember.Type.IsStruct) && targetKeyMember.IsNullable;
 
-                KeyValueMappings
-                    stt = sttMap = new(
-                        src => GenerateValue(src + "." + targetKeyMember.Name, keyMapping.BuildToTargetValue, checkKeyFieldNull, false, targetKeyMember.Type.IsValueType, sourceKeyMember.Bang, sourceKeyMember.DefaultBang),
-                        src => GenerateValue(src + "." + targetValueMember.Name, valueMapping.BuildToTargetValue, checkValueFieldNull, false, targetValueMember.Type.IsValueType, targetKeyMember.Bang, targetKeyMember.DefaultBang)),
-                    tts = ttsMap = new(
-                        src => GenerateValue(src + "." + sourceKeyMember.Name, keyMapping.BuildToSourceValue, checkKeyPropNull, false, sourceKeyMember.Type.IsValueType, sourceValueMember.Bang, sourceValueMember.DefaultBang),
-                        src => GenerateValue(src + "." + sourceValueMember.Name, valueMapping.BuildToSourceValue, checkValuePropNull, false, sourceValueMember.Type.IsValueType, targetValueMember.Bang, targetValueMember.DefaultBang));
+            string keyPropName = sourceKeyMember.Name,
+                valuePropName = targetKeyMember.Name,
+                targetKeyFieldName = sourceValueMember.Name,
+                targetValueFieldName = targetValueMember.Name;
 
-                var buildTargetValue = buildToTargetValue = sb =>
-                    string.Format(@" new {0}({1}, {2})", targetType.NotNullFullName, stt.Key(sb), stt.Value(sb));
+            KeyValueMappings
+                stt = map.STTKeyValueMapping = new(
+                    src => GenerateValue(src + "." + targetKeyMember.Name, keyMapping.BuildToTargetValue, checkKeyFieldNull, false, targetKeyMember.Type.IsValueType, sourceKeyMember.Bang, sourceKeyMember.DefaultBang),
+                    src => GenerateValue(src + "." + targetValueMember.Name, valueMapping.BuildToTargetValue, checkValueFieldNull, false, targetValueMember.Type.IsValueType, targetKeyMember.Bang, targetKeyMember.DefaultBang)),
+                tts = map.TTSKeyValueMapping = new(
+                    src => GenerateValue(src + "." + sourceKeyMember.Name, keyMapping.BuildToSourceValue, checkKeyPropNull, false, sourceKeyMember.Type.IsValueType, sourceValueMember.Bang, sourceValueMember.DefaultBang),
+                    src => GenerateValue(src + "." + sourceValueMember.Name, valueMapping.BuildToSourceValue, checkValuePropNull, false, sourceValueMember.Type.IsValueType, targetValueMember.Bang, targetValueMember.DefaultBang));
 
-                buildToTargetMethod = sb =>
-                    sb.AppendFormat(@"
+            var buildTargetValue = map.BuildToTargetValue = sb =>
+                string.Format(@" new {0}({1}, {2})", map.TargetType.NotNullFullName, stt.Key(sb), stt.Value(sb));
+
+            map.BuildToTargetMethod = sb =>
+                sb.AppendFormat(@"
         public static {0} {1}(ref this {2} source)
         {{
             return {3};
         }}",
-                        targetType.NotNullFullName,
-                        toTargetMethod,
-                        sourceType.NotNullFullName,
-                        buildTargetValue("source"));
+                    map.TargetType.NotNullFullName,
+                    map.ToTargetMethodName,
+                    map.SourceType.NotNullFullName,
+                    buildTargetValue("source"));
 
-                var buildSourceValue = buildToSourceValue = sb =>
-                    string.Format(@"({0}, {1})",
-                        tts.Key(sb),
-                        tts.Value(sb));
+            var buildSourceValue = map.BuildToSourceValue = sb =>
+                string.Format(@"({0}, {1})",
+                    tts.Key(sb),
+                    tts.Value(sb));
 
-                buildToSourceMethod = sb =>
-                    sb.AppendFormat(@"
+            map.BuildToSourceMethod = sb =>
+                sb.AppendFormat(@"
         public static {0} {1}(ref this {2} source)
         {{
             return {3};
         }}",
-                        sourceType.NotNullFullName,
-                        toSourceMethod,
-                        targetType.NotNullFullName,
-                        buildSourceValue("source"));
+                    map.SourceType.NotNullFullName,
+                    map.ToSourceMethodName,
+                    map.TargetType.NotNullFullName,
+                    buildSourceValue("source"));
 
-                map.CanMap = true;
-            }
+            map.CanMap = true;
+
         }
     }
 
-    private void GetKeyValueProps(HashSet<ISymbol> members, out ISymbol keyProp, out ISymbol valueProp)
+    private void GetKeyValueProps(Span<Member> members, out Member keyProp, out Member valueProp)
     {
         keyProp = null!;
         valueProp = null!;
 
         foreach (var member in members)
         {
-            if (member is IPropertySymbol prop)
-            {
-                switch (prop.ToNameOnly())
-                {
-                    case "Key":
-                        keyProp = prop;
-                        continue;
-                    case "Value":
-                        valueProp = prop;
-                        continue;
-                    default:
-                        continue;
-                }
-            }
+            if (!member.IsProperty) continue;
 
-            if (keyProp != null && valueProp != null) return;
+            switch (member.Name)
+            {
+                case "Key":
+                    keyProp = member;
+
+                    if (valueProp != null) return;
+
+                    continue;
+                case "Value":
+                    valueProp = member;
+
+                    if (keyProp != null) return;
+
+                    continue;
+                default:
+                    continue;
+            }
         }
     }
 

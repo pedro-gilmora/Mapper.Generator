@@ -2,6 +2,8 @@
 //using SourceCrafter.Mapping.Constants;
 
 using SourceCrafter.Bindings.Attributes;
+using SourceCrafter.Bindings.UnitTests;
+
 using System.Collections.ObjectModel;
 
 namespace SourceCrafter.UnitTests;
@@ -15,7 +17,7 @@ public partial class User //: IUser
             (FirstName, LastName) = value?.Split(", ") switch
             {
                 [{ } lastName, { } firstName] => (firstName.Trim(), lastName.Trim()),
-                [{ } firstName] => (firstName, null!),
+                [{ } firstName] => (firstName.Trim(), null!),
                 _ => (null!, null!)
             };
     }
@@ -33,6 +35,7 @@ public partial class User //: IUser
     public User? Supervisor { get; init; }
     public (string, object)[] ExtendedProperties { get; init; } = [];
     public string[] Phrases { get; set; } = [];
+    public Status Status { get; }
 }
 
 

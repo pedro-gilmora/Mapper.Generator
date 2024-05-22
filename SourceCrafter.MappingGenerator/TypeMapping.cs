@@ -67,7 +67,6 @@ internal class TypeMappingInfo
         AddSTTTryGet,
         HasToTargetScalarConversion,
         HasToSourceScalarConversion,
-        JustFill,
         RequiresSTTCall,
         RequiresTTSCall,
         RenderedSTTDefaultMethod, RenderedSTTTryGetMethod, RenderedSTTFillMethod,
@@ -179,16 +178,16 @@ internal class TypeMappingInfo
             : $"To{source.SanitizedName}";
         TryGetTargetMethodName = sameType
             ? "TryCopy"
-            : $"TryGet{target.SanitizedName}";
+            : $"TryGet";
         TryGetSourceMethodName = sameType
             ? "TryCopy"
-            : $"TryGet{source.SanitizedName}";
+            : $"TryGet";
         FillTargetMethodName = sameType
             ? "Update"
-            : $"FillFrom{source.SanitizedName}";
+            : $"Fill";
         FillSourceMethodName = sameType
             ? "Update"
-            : $"FillFrom{target.SanitizedName}";
+            : $"Fill";
 
         Id = id;
         AreSameType = target.Id == source.Id;

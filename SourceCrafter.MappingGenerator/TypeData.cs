@@ -12,6 +12,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using System.Reflection;
 
 namespace SourceCrafter.Bindings;
 
@@ -48,25 +49,20 @@ internal sealed class TypeData
         IsKeyValueType,
         IsReference,
         HasPublicZeroArgsCtor,
-        IsPrimitive;
+        IsPrimitive,
+        IsEnum,
+        IsMultiMember;
 
     internal bool? IsIterable;
 
     internal bool IsRecursive;
-
-    internal bool IsMultiMember => IsTupleType || !(IsPrimitive || IsIterable is true);
-
-    readonly HashSet<ISymbol>? _members;
-
-    internal readonly Func<HashSet<ISymbol>> _membersRetriever;
     internal readonly bool DictionaryOwned;
-    ImmutableArray<IFieldSymbol>? _tupleMembers;
 
-    internal HashSet<ISymbol> Members =>
-        _members ?? _membersRetriever();
+    Member[]? _members = null;
 
-    internal ImmutableArray<IFieldSymbol> TupleElements =>
-        _tupleMembers ??= ((INamedTypeSymbol)_type).TupleElements;
+    private Func<Member[]> _getMembers = null!;
+
+    internal Span<Member> Members => _members ??= _getMembers();
 
     internal TypeData(TypeSet typeSet, Compilation compilation, TypeImplInfo typeMapInfo, int typeId, bool dictionaryOwned)
     {
@@ -106,8 +102,6 @@ internal sealed class TypeData
                 : FullName);
         }
 
-        _membersRetriever = () => GetAllMembers(typeMapInfo.MembersSource);
-
         SanitizedName = SanitizeTypeName(type);
         AllowsNull = type.AllowsNull();
         NonGenericFullName = type.ToGlobalNonGenericNamespace();
@@ -121,8 +115,12 @@ internal sealed class TypeData
         IsInterface = type.TypeKind == TypeKind.Interface;
         IsReference = type.IsReferenceType;
 
-        HasPublicZeroArgsCtor = 
-            (type is INamedTypeSymbol { InstanceConstructors: { Length: > 0 } ctors } 
+        _getMembers = IsTupleType
+            ? () => GetAllMembers(((INamedTypeSymbol)typeMapInfo.MembersSource!).TupleElements)
+            : () => GetAllMembers(typeMapInfo.MembersSource!);
+
+        HasPublicZeroArgsCtor =
+            (type is INamedTypeSymbol { InstanceConstructors: { Length: > 0 } ctors }
              && ctors.FirstOrDefault(ctor => ctor.Parameters.IsDefaultOrEmpty)?
                     .DeclaredAccessibility is null or Accessibility.Public or Accessibility.Internal)
             || typeMapInfo.Implementation?.Kind is SymbolKind.ErrorType;
@@ -130,6 +128,8 @@ internal sealed class TypeData
         _type = type;
 
         IsIterable = IsEnumerableType(NonGenericFullName, type, out CollectionInfo);
+
+        IsMultiMember = IsTupleType || !(type.TypeKind is TypeKind.Enum || IsPrimitive || IsIterable is true);
     }
 
     internal bool HasConversionTo(TypeData source, out bool exists, out bool isExplicit)
@@ -159,20 +159,134 @@ internal sealed class TypeData
         return exists;
     }
 
-    HashSet<ISymbol> GetAllMembers(ITypeSymbol? type)
+    Member[] GetAllMembers(ITypeSymbol type)
     {
-        HashSet<ISymbol> members = new(PropertyTypeEqualityComparer.Default);
+        HashSet<Member> members = new(PropertyTypeEqualityComparer.Default);
 
-        while (type != null)
+        while (type?.Name is not (null or "Object"))
         {
-            foreach (var i in type.GetMembers())
-                members.Add(i);
+            int i = 0;
+            foreach (var member in type!.GetMembers())
+            {
+                if (member.DeclaredAccessibility is not (Accessibility.Internal or Accessibility.Friend or Accessibility.Public))
+                    continue;
 
-            type = type.BaseType;
+                var canWrite = member.DeclaredAccessibility is Accessibility.Public ||
+                        MappingSet._comparer.Equals(_compilation.SourceModule, member.ContainingModule);
+
+
+                switch (member)
+                {
+                    case IPropertySymbol
+                    {
+                        ContainingType.Name: not ['I', 'E', 'n', 'u', 'm', 'e', 'r', 'a', 't', 'o', 'r', ..],
+                        IsIndexer: false,
+                        Type: { } memberType,
+                        RefCustomModifiers: { },
+                        IsStatic: false,
+                        IsReadOnly: var isReadonly,
+                        IsWriteOnly: var isWriteOnly,
+                        SetMethod: var setMethod
+                    }:
+                        //Find the associated IFieldSymbol for the property
+                        object runtimePropType = underlyingField.GetValue(member);
+                        var isAuto = !runtimePropType.GetType().Name.StartsWith("Substituted") && (bool)isAutoProperty.GetValue(runtimePropType);
+                        // TODO: avoid including non auto properties in generation
+                        members.Add(
+                            new(MappingSet._comparer.GetHashCode(member),
+                                member.ToNameOnly(),
+                                memberType.IsNullable(),
+                                isReadonly,
+                                isWriteOnly,
+                                member.GetAttributes(),
+                                setMethod?.IsInitOnly == true,
+                                true,
+                                true)
+                            {
+                                Type = _typeSet.GetOrAdd(memberType),
+                                IsAutoProperty = isAuto,
+                                CanInit = !isReadonly,
+                                Position = i++,
+                                IsWritableAsTarget = canWrite
+                            });
+
+                        continue;
+
+                    case IFieldSymbol
+                    {
+                        ContainingType.Name: not ['I', 'E', 'n', 'u', 'm', 'e', 'r', 'a', 't', 'o', 'r', ..],
+                        Type: { } memberType,
+                        IsStatic: false,
+                        AssociatedSymbol: var associated,
+                        IsReadOnly: var isReadonly,
+                        
+                    } :
+                        //int id = MappingSet._comparer.GetHashCode(member);
+                        
+                        //if(associated is IPropertySymbol{} associatedProp)
+                        //{
+                        //    int propId = MappingSet._comparer.GetHashCode(associatedProp);
+
+                        //    if(members.FirstOrDefault(m => m.Id == propId) is { } foundAssocProp)
+                        //    {
+                        //        foundAssocProp.
+                        //    }
+                        //}
+
+                        //if(members.FirstOrDefault(m => )
+
+                        members.Add(
+                            new(MappingSet._comparer.GetHashCode(member),
+                                member.ToNameOnly(),
+                                memberType.IsNullable(),
+                                true,
+                                !isReadonly,
+                                member.GetAttributes(),
+                                true)
+                            {
+                                Type = _typeSet.GetOrAdd(memberType.AsNonNullable()),
+                                Position = i++,
+                                IsWritableAsTarget = canWrite
+                            });
+
+                        continue;
+
+                    default:
+                        continue;
+                }
+            }
+
+            type = type.BaseType!;
         }
 
-        return members;
+        return [.. members.OrderBy(m => m.Position)];
     }
+
+    Member[] GetAllMembers(ImmutableArray<IFieldSymbol> tupleFields)
+    {
+        HashSet<Member> members = new(PropertyTypeEqualityComparer.Default);
+
+        if (tupleFields.IsDefaultOrEmpty) return [];
+
+        foreach (var member in tupleFields)
+            members.Add(
+                new(MappingSet._comparer.GetHashCode(member),
+                    member.ToNameOnly(),
+                    member.Type.IsNullable(),
+                    false,
+                    false,
+                    ImmutableArray<AttributeData>.Empty,
+                    true)
+                {
+                    Type = _typeSet.GetOrAdd(member.Type.AsNonNullable())
+                });
+
+        return [.. members];
+    }
+
+    static readonly PropertyInfo isAutoProperty = Type.GetType("Microsoft.CodeAnalysis.CSharp.Symbols.SourcePropertySymbolBase, Microsoft.CodeAnalysis.CSharp").GetProperty("IsAutoProperty", BindingFlags.Instance | BindingFlags.NonPublic);
+    //PropertyInfo underlyingField = Type.GetType("Microsoft.CodeAnalysis.CSharp.Symbols.SourcePropertySymbol, Microsoft.CodeAnalysis.CSharp, Culture=neutral")
+    static readonly FieldInfo underlyingField = Type.GetType("Microsoft.CodeAnalysis.CSharp.Symbols.PublicModel.PropertySymbol, Microsoft.CodeAnalysis.CSharp").GetField("_underlying", BindingFlags.Instance | BindingFlags.NonPublic);
 
     internal bool Equals(TypeData obj) => MappingSet._comparer.Equals(_type, obj._type);
 
@@ -210,7 +324,7 @@ internal sealed class TypeData
 
     internal void BuildEnumMethods(StringBuilder code)
     {
-        var members = Members.OfType<IFieldSymbol>().ToImmutableArray();
+        var members = _type.GetMembers();
 
         if (members.Length == 0) return;
 
@@ -228,7 +342,7 @@ internal sealed class TypeData
             tryGetName = null,
             tryGetDesc = null;
 
-        foreach (var m in members)
+        foreach (var m in members.OfType<IFieldSymbol>())
         {
             string fullMemberName = MemberFullName(m);
 
@@ -393,15 +507,15 @@ internal sealed class TypeData
         .FirstOrDefault(a => a.AttributeClass?.ToGlobalNamespace() is "global::System.ComponentModel.DescriptionAttribute")
         ?.ConstructorArguments.FirstOrDefault().Value?.ToString() ?? m.Name.Wordify()}""";
 
-    private class PropertyTypeEqualityComparer : IEqualityComparer<ISymbol>
+    private class PropertyTypeEqualityComparer : IEqualityComparer<Member>
     {
         internal readonly static PropertyTypeEqualityComparer Default = new();
 
-        public bool Equals(ISymbol x, ISymbol y) => GetKey(x) == GetKey(y);
+        public bool Equals(Member x, Member y) => GetKey(x) == GetKey(y);
 
-        private string GetKey(ISymbol x) => MappingSet._comparer.GetHashCode(x) + "|" + x.ToNameOnly();
+        private string GetKey(Member x) => x.Id + "|" + x.Name;
 
-        public int GetHashCode(ISymbol obj) => GetKey(obj).GetHashCode();
+        public int GetHashCode(Member obj) => GetKey(obj).GetHashCode();
     }
 
     bool IsEnumerableType(string nonGenericFullName, ITypeSymbol type, out CollectionInfo info)

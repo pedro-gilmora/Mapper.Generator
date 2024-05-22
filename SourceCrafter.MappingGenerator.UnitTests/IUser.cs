@@ -6,6 +6,8 @@
 
 //Testing purpose
 
+using SourceCrafter.Bindings.UnitTests;
+
 namespace SourceCrafter.UnitTests;
 
 //[DefaultMap<User>]
@@ -20,4 +22,5 @@ public interface IUser
     double Balance { get; set; }
     IEnumerable<IUser> Asignees { get; set; }
     Role? MainRole { get; set; }
+    Status Status { get; }
 }

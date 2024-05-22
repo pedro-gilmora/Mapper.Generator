@@ -5,9 +5,7 @@ using SourceCrafter.Bindings.Constants;
 using SourceCrafter.Bindings.Helpers;
 
 using System;
-using System.Dynamic;
-using System.Linq;
-using System.Security.Cryptography;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace SourceCrafter.Bindings;
@@ -19,6 +17,20 @@ delegate string BuildMember(
     TypeData sourceType,
     Member sourceMember);
 
+[Flags]
+file enum GenerateUse
+{
+    OriginalTarget,
+    NullableDesignatedTarget,
+    UnsafeUnderlyingTarget,
+    UnsafeUnderlyingTargetValue,
+    EqualsAssignment,
+    FillMethod,
+    CopyMethod,
+    RefFieldAsParamToUpdate,
+
+}
+
 internal sealed partial class MappingSet
 {
     string? BuildTypeMember(
@@ -28,17 +40,22 @@ internal sealed partial class MappingSet
         ValueBuilder createType,
         Member source,
         Member target,
-        string sourceToTargetMethodName,
-        string fillTargetFromMethodName,
-        bool call)
+        string copyMethodName,
+        string fillMethodName,
+        bool callable)
     {
         bool checkNull = (!target.IsNullable || !target.Type.IsPrimitive) && source.IsNullable;
 
-        var _ref = target.Type.IsValueType ? "ref " : null;
-
         if (isFill)
         {
+            bool
+                useUnsafeAssignment = (target.IsReadOnly || target is { IsInit: true, OwningType.IsTupleType: false })
+                    && (!target.IsProperty || target.IsAutoProperty),
+                useRefFromUnsafeAccessor = (target.OwningType is { IsReadOnly: false, IsTupleType: false }
+                    && useUnsafeAssignment) || target.Type is { IsMultiMember: true, IsValueType: true };
+
             string
+                _ref = target.Type.IsValueType ? "ref " : "",
                 sourceMember = "source." + source.Name,
                 targetMember = "target." + target.Name,
                 targetType = target.Type.NotNullFullName,
@@ -47,12 +64,9 @@ internal sealed partial class MappingSet
                 getPrivFieldMethodName = $"Get{target.OwningType!.SanitizedName}_{target.Name}_PF",
                 getNullMethodName = $"GetValueOfNullableOf{target.Type.SanitizedName}";
 
-            var declareRef = !target.IsWritable || target.IsInit || target.Type.IsValueType;
-
-            if (target.Type.IsMultiMember && declareRef)
+            if (useRefFromUnsafeAccessor)
             {
-                if (!canUseUnsafeAccessor)
-                    return null;
+                if (!canUseUnsafeAccessor) return null;
 
                 if (target.IsNullable)
                 {
@@ -74,63 +88,57 @@ internal sealed partial class MappingSet
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = ""{(target.IsProperty ? $"<{target.Name}>k__BackingField" : target.Name)}"")]
     extern static ref {targetType}{(target.IsNullable ? "?" : null)} {getPrivFieldMethodName}({parentFullName} _);
 "));
-            }
 
-            if (!target.Type.IsMultiMember && (!target.IsWritable || target.OwningType?.IsReadOnly is true || (target.OwningType is { IsTupleType: false } && target.IsInit)))
-                return null;
+                string
+                    outputVal = "_target" + target.Name,
+                    inputVal = "_source" + target.Name,
+                    fillFirstParam = useRefFromUnsafeAccessor
+                        ? target.IsNullable
+                            ? $"{_ref}{getNullMethodName}(ref {outputVal})"
+                            : $"{_ref}{outputVal}"
+                        : targetMember;
 
-            string
-                outputVal = "_target" + target.Name,
-                inputVal = "_source" + target.Name,
-                fillFirstParam = declareRef
-                    ? target.IsNullable
-                        ? $"{_ref}{getNullMethodName}(ref {outputVal})"
-                        : $"{_ref}{outputVal}"
-                    : targetMember;
-
-            var start = declareRef
-                ? $@"
+                var start = $@"
         // Nullable hack to fill without changing reference
-        ref var {outputVal} = ref {getPrivFieldMethodName}(target);"
-                : null;
+        ref var {outputVal} = ref {getPrivFieldMethodName}(target);";
 
-            if (target.Type.IsMultiMember) // Usar el metodo Fill en vez de asignar
-            {
                 if (target.IsNullable)
                 {
-                    var notNullRightSideCheck = target.Type.IsStruct ? ".HasValue" : " is not null";
+                    var notNullTargetCheck = NotNullCheck(target);
+
                     if (source.IsNullable)
                     {
+                        var notNullSourceCheck = NotNullCheck(source);
+
                         return $@"{start}
         if ({sourceMember} is {{}} {inputVal})
-            if({targetMember}{notNullRightSideCheck})
-                {fillTargetFromMethodName}({fillFirstParam}, {inputVal});{(declareRef ? $@"
+            if({targetMember}{notNullTargetCheck})
+                {fillMethodName}({fillFirstParam}, {inputVal});{(useRefFromUnsafeAccessor ? $@"
             else
-                {outputVal} = {sourceToTargetMethodName}({inputVal});
+                {outputVal} = {copyMethodName}({inputVal});
         else
             {outputVal} = default{targetDefaultBang};" : $@"
             else
-                {targetMember} = {sourceToTargetMethodName}({inputVal});
+                {targetMember} = {copyMethodName}({GetValue(inputVal)});
         else
             {targetMember} = default{targetDefaultBang};")}
 ";
                     }
 
                     return $@"{start}
-        if({outputVal}{notNullRightSideCheck})
-            {fillTargetFromMethodName}({fillFirstParam}, {sourceMember});{(declareRef ? $@"
+        if({outputVal}{notNullTargetCheck})
+            {fillMethodName}({fillFirstParam}, {sourceMember});{(useRefFromUnsafeAccessor ? $@"
         else
-            {outputVal} = {sourceToTargetMethodName}({sourceMember});" : $@"
+            {outputVal} = {copyMethodName}({GetValue(sourceMember)});" : $@"
         else
-            {targetMember} = {sourceToTargetMethodName}({sourceMember});")}";
+            {targetMember} = {copyMethodName}({GetValue(sourceMember)});")}";
 
                 }
                 else if (source.IsNullable)
                 {
-
                     return $@"{start}
         if({sourceMember} is {{}} _in)
-            {fillTargetFromMethodName}({fillFirstParam}, _in);{(declareRef ? $@"
+            {fillMethodName}({fillFirstParam}, {GetValue("_in")});{(useRefFromUnsafeAccessor ? $@"
         else
             {outputVal} = default{targetDefaultBang};" : $@"
         else
@@ -139,18 +147,37 @@ internal sealed partial class MappingSet
                 }
 
                 return $@"{start}
-        {fillTargetFromMethodName}({fillFirstParam}, {sourceMember});
-";
+        {(useRefFromUnsafeAccessor, target.Type.IsMultiMember) switch
+                {
+                    (true, true) => fillMethodName + $"({fillFirstParam}, {sourceMember})",
+                    (_, false) => $"{outputVal} = {GetValue(sourceMember)}",
+                    (false, true) => fillMethodName + $"({targetMember}, {sourceMember})"
+                }};";
             }
 
             return $@"
-        {targetMember} = {GenerateValue(sourceMember, createType, checkNull, call, target.Type.IsValueType, source.Bang, source.DefaultBang)};";
+        {targetMember} = {GetValue(sourceMember)};";
 
         }
-        else
+        else if (target.CanInit && target.IsWritableAsTarget)
         {
             return Exch(ref comma, ",") + spacing + (target.OwningType?.IsTupleType is not true ? target.Name + " = " : null)
-                + GenerateValue("source." + source.Name, createType, checkNull, call, target.Type.IsValueType, source.Bang, source.DefaultBang);
+                + GetValue("source." + source.Name);
+        }
+
+        return null;
+
+        //Add agressive inlining spec
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        string GetValue(string expr)
+        {
+            return GenerateValue(expr, createType, checkNull, callable, target.Type.IsValueType, source.Bang, source.DefaultBang);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static string NotNullCheck(Member target)
+        {
+            return target.Type.IsStruct ? ".HasValue" : " is not null";
         }
     }
 
@@ -169,10 +196,12 @@ internal sealed partial class MappingSet
 
     bool CheckMappability(Member target, Member source, ref bool ignoreTarget, ref bool ignoreSource)
     {
-        if (!target.IsWritable || !source.IsReadable)
+        if (target.IsReadOnly || source.IsWriteOnly)
             return false;
 
         bool canWrite = false;
+
+        if (target.Attributes.IsDefaultOrEmpty) return canWrite;
 
         foreach (var attr in target.Attributes)
         {
@@ -239,66 +268,4 @@ internal sealed partial class MappingSet
     }
 
     delegate void MemberBuilder(StringBuilder code, bool isFill);
-
-    static bool IsNotMappable(ISymbol member, out ITypeSymbol typeOut, out int typeIdOut, out Member memberOut)
-    {
-        var isAccesible = member.DeclaredAccessibility is (Accessibility.Internal 
-            or Accessibility.Public);
-
-        switch (member)
-        {
-            case IPropertySymbol
-            {
-                ContainingType.Name: not ['I', 'E', 'n', 'u', 'm', 'e', 'r', 'a', 't', 'o', 'r', ..],
-                IsIndexer: false,
-                Type: { } type,
-                RefCustomModifiers: { },
-                IsStatic: false,
-                IsReadOnly: var isReadonly,
-                IsWriteOnly: var isWriteOnly,
-                SetMethod: var setMethod
-            }:
-                (typeOut, typeIdOut, memberOut) = (
-                    type.AsNonNullable(),
-                    GetId(type),
-                    new(_comparer.GetHashCode(member),
-                        member.ToNameOnly(),
-                        type.IsNullable(),
-                        isAccesible && !isWriteOnly,
-                        isAccesible && !isReadonly,
-                        member.GetAttributes(),
-                        setMethod?.IsInitOnly == true,
-                        isAccesible,
-                        true));
-
-                return false;
-
-            case IFieldSymbol
-            {
-                ContainingType.Name: not ['I', 'E', 'n', 'u', 'm', 'e', 'r', 'a', 't', 'o', 'r', ..],
-                Type: { } type,
-                IsStatic: false,
-                AssociatedSymbol: null,
-                IsReadOnly: var isReadonly
-            }:
-                (typeOut, typeIdOut, memberOut) =
-                    (type.AsNonNullable(),
-                     GetId(type),
-                     new(_comparer.GetHashCode(member),
-                        member.ToNameOnly(),
-                        type.IsNullable(),
-                        isAccesible,
-                        isAccesible && !isReadonly,
-                        member.GetAttributes(),
-                        isAccesible
-                    ));
-
-                return false;
-
-            default:
-                (typeOut, typeIdOut, memberOut) = (default!, default, default!);
-
-                return true;
-        }
-    }
 }

@@ -3,13 +3,14 @@ using SourceCrafter.Bindings.Constants;
 using SourceCrafter.Bindings.Helpers;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Text;
 
 namespace SourceCrafter.Bindings;
 
 internal sealed partial class MappingSet
 {
-    private void CreateTypeMapBuilders<TTarget, TSource>
+    private void CreateTypeMapBuilders
     (
         TypeMappingInfo map,
         ApplyOn ignore,
@@ -17,11 +18,9 @@ internal sealed partial class MappingSet
         string targetMappingPath,
         Member source,
         Member target,
-        IEnumerable<TSource> sourceMembers,
-        IEnumerable<TTarget> targetMembers
+        Span<Member> sourceMembers,
+        Span<Member> targetMembers
     )
-    where TTarget : ISymbol
-    where TSource : ISymbol
     {
         if (map is { IsCollection: not true, TargetType.IsInterface: true, SourceType.IsInterface: true })
             return;
@@ -136,20 +135,19 @@ internal sealed partial class MappingSet
 
         var allowLowerCase = map.TargetType.IsTupleType || map.SourceType.IsTupleType;
 
-        foreach (var targetItem in targetMembers)
+        foreach (var targetMember in targetMembers)
         {
-            if (IsNotMappable(targetItem, out var targetMemberType, out var targetTypeId, out var targetMember))
-
-                continue;
-
-            foreach (var sourceItem in sourceMembers)
+            foreach (var sourceMember in sourceMembers)
             {
-                if (IsNotMappable(sourceItem, out var sourceMemberType, out var sourceTypeId, out var sourceMember)
-                    || AreNotMappableByDesign(allowLowerCase, sourceMember, targetMember, out var ignoreSource, out var ignoreTarget))
-
+                if (AreNotMappableByDesign(allowLowerCase, sourceMember, targetMember, out var ignoreSource, out var ignoreTarget))
+                {
+                    if ((targetMember.Type.Id, targetMember.Name) == (sourceMember.Type.Id, sourceMember.Name)) 
+                        break;
+                    
                     continue;
+                }
 
-                if (mapId == GetId(sourceTypeId, targetTypeId))
+                if (mapId == GetId(targetMember.Type.Id, targetMember.Type.Id))
                 {
                     targetMember.Type = targetMember.OwningType = map.TargetType;
                     sourceMember.Type = sourceMember.OwningType = map.SourceType;
@@ -165,23 +163,22 @@ internal sealed partial class MappingSet
 
                         hasComplexSTTMembers = true;
                         
-                        if(target.IsWritable) 
-                            sttMembers += (code, isFill) =>
-                            {
-                                code.Append(BuildTypeMember(
-                                    isFill,
-                                    ref sttComma,
-                                    sttSpacing,
-                                    map.BuildToTargetValue,
-                                    sourceMember,
-                                    targetMember,
-                                    map.ToTargetMethodName,
-                                    map.FillTargetMethodName,
-                                    map.RequiresSTTCall));
+                        sttMembers += (code, isFill) =>
+                        {
+                            code.Append(BuildTypeMember(
+                                isFill,
+                                ref sttComma,
+                                sttSpacing,
+                                map.BuildToTargetValue,
+                                sourceMember,
+                                targetMember,
+                                map.ToTargetMethodName,
+                                map.FillTargetMethodName,
+                                map.RequiresSTTCall));
 
-                                if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                    map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
-                            };
+                            if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                        };
                     }
 
                     if (!(toSameType && parentIgnoreSource || ignoreSource || map.SourceType.IsInterface))
@@ -194,23 +191,22 @@ internal sealed partial class MappingSet
                         if (sourceMember.IsNullable)
                             map.AddTTSTryGet = true;
                         
-                        if(source.IsWritable)
-                            ttsMembers += (code, isFill) =>
-                            {
-                                code.Append(BuildTypeMember(
-                                    isFill,
-                                    ref ttsComma,
-                                    ttsSpacing,
-                                    map.BuildToSourceValue,
-                                    targetMember,
-                                    sourceMember,
-                                    map.ToSourceMethodName,
-                                    map.FillSourceMethodName,
-                                    map.RequiresTTSCall));
+                        ttsMembers += (code, isFill) =>
+                        {
+                            code.Append(BuildTypeMember(
+                                isFill,
+                                ref ttsComma,
+                                ttsSpacing,
+                                map.BuildToSourceValue,
+                                targetMember,
+                                sourceMember,
+                                map.ToSourceMethodName,
+                                map.FillSourceMethodName,
+                                map.RequiresTTSCall));
 
-                                if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                    map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
-                            };
+                            if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                        };
                     }
 
                     map.CanMap |= map.HasTargetToSourceMap || map.HasTargetToSourceMap;
@@ -218,9 +214,7 @@ internal sealed partial class MappingSet
                     break;
                 }
 
-                var memberMap = GetOrAddMapper(
-                    targetMemberType,
-                    sourceMemberType);
+                var memberMap = GetOrAddMapper(targetMember.Type,sourceMember.Type);
 
                 memberMap = ParseTypesMap(
                     memberMap,
@@ -255,23 +249,22 @@ internal sealed partial class MappingSet
                             memberMap.TargetType.IsRecursive |=
                             memberMap.IsCollection is true && memberMap.TargetType.CollectionInfo.ItemDataType.Id == target.Type.Id;
 
-                        if(target.IsWritable)
-                            sttMembers += (code, isFill) =>
-                            {
-                                code.Append(BuildTypeMember(
-                                    isFill,
-                                    ref sttComma,
-                                    sttSpacing,
-                                    memberMap.BuildToTargetValue,
-                                    sourceMember,
-                                    targetMember,
-                                    memberMap.ToTargetMethodName,
-                                    memberMap.FillTargetMethodName,
-                                    memberMap.RequiresSTTCall));
+                        sttMembers += (code, isFill) =>
+                        {
+                            code.Append(BuildTypeMember(
+                                isFill,
+                                ref sttComma,
+                                sttSpacing,
+                                memberMap.BuildToTargetValue,
+                                sourceMember,
+                                targetMember,
+                                memberMap.ToTargetMethodName,
+                                memberMap.FillTargetMethodName,
+                                memberMap.RequiresSTTCall));
 
-                                if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                    map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
-                            };
+                            if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                        };
                     }
 
                     if (!(toSameType || parentIgnoreSource || ignoreSource || map.SourceType.IsInterface))
@@ -288,23 +281,22 @@ internal sealed partial class MappingSet
                             memberMap.SourceType.IsRecursive |=
                             memberMap.IsCollection is true && memberMap.SourceType.CollectionInfo.ItemDataType.Id == source.Type.Id;
 
-                        if(source.IsWritable)
-                            ttsMembers += (code, isFill) =>
-                            {
-                                code.Append(BuildTypeMember(
-                                    isFill,
-                                    ref ttsComma,
-                                    ttsSpacing,
-                                    memberMap.BuildToSourceValue,
-                                    targetMember,
-                                    sourceMember,
-                                    memberMap.ToSourceMethodName,
-                                    memberMap.FillSourceMethodName,
-                                    memberMap.RequiresTTSCall));
+                        ttsMembers += (code, isFill) =>
+                        {
+                            code.Append(BuildTypeMember(
+                                isFill,
+                                ref ttsComma,
+                                ttsSpacing,
+                                memberMap.BuildToSourceValue,
+                                targetMember,
+                                sourceMember,
+                                memberMap.ToSourceMethodName,
+                                memberMap.FillSourceMethodName,
+                                memberMap.RequiresTTSCall));
 
-                                if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                    map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
-                            };
+                            if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
+                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                        };
                     }
 
                     if (map.MappingsKind == MappingKind.All && memberMap.MappingsKind != MappingKind.All

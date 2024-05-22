@@ -7,6 +7,8 @@
 //using SourceCrafter.Mapping.Attributes;
 
 using SourceCrafter.Bindings.Attributes;
+using SourceCrafter.Bindings.UnitTests;
+
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Xml;
@@ -34,5 +36,6 @@ public partial class UserDto
 
     //public UserDto? Supervisor { get; init; }
     public IEnumerable<string> Phrases { get; set; } = Array.Empty<string>();
+    public Status Status { get; }
 
 }

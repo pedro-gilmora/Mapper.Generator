@@ -9,8 +9,8 @@ internal sealed record Member(
     int Id,
     string Name,
     bool IsNullable,
-    bool IsReadable = true,
-    bool IsWritable = true,
+    bool IsReadOnly = false,
+    bool IsWriteOnly = false,
     ImmutableArray<AttributeData> Attributes = default,
     bool IsInit = false,
     bool CanMap = true,
@@ -25,6 +25,9 @@ internal sealed record Member(
     internal TypeData Type = null!;
 
     internal TypeData? OwningType;
+
+    internal bool IsAutoProperty, CanInit = true, IsWritableAsTarget = true;
+    internal int Position;
 
     internal bool MaxDepthReached(string s)
     {
@@ -56,5 +59,6 @@ internal sealed record Member(
         }
         return false;
     }
-    public override string ToString() => $"({(Type?.ToString() ?? "?")}) {Name}";
+    public override string ToString() => 
+        $"({(Type?.ToString() ?? "?")}) {(OwningType?.ExportNotNullFullName is { } name ? name+"." : null)}{Name}";
 }
