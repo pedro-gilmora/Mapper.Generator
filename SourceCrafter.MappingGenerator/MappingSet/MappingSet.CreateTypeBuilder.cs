@@ -54,10 +54,11 @@ internal sealed partial class MappingSet
             parentIgnoreTarget = ignore is ApplyOn.Target or ApplyOn.Both,
             parentIgnoreSource = ignore is ApplyOn.Source or ApplyOn.Both;
 
-        if (map.BuildToTargetValue is null || !map.TargetType.IsValueType)
+        if (map.BuildToTargetValue is null)
         {
-            map.RequiresSTTCall = true;
-            map.BuildToTargetValue = val => map.ToTargetMethodName + "(" + val + (isSTTRecursive ? ", depth + 1" + (source.MaxDepth > 1 ? ", " + source.MaxDepth : null) : null) + ")";
+            map.BuildToTargetValue = map.HasToTargetScalarConversion || !source.Type.HasMembers
+                ? val => val
+                : val => map.ToTargetMethodName + "(" + val + (isSTTRecursive ? ", depth + 1" + (source.MaxDepth > 1 ? ", " + source.MaxDepth : null) : null) + ")";
         }
 
         map.BuildToTargetMethod = code =>
@@ -93,10 +94,11 @@ internal sealed partial class MappingSet
             }
         };
 
-        if (map.BuildToSourceValue is null || !map.SourceType.IsValueType)
+        if (map.BuildToSourceValue is null)
         {
-            map.RequiresTTSCall = true;
-            map.BuildToSourceValue = val => map.ToSourceMethodName + "(" + val + (isTTSRecursive ? ", depth + 1" + (target.MaxDepth > 1 ? ", " + target.MaxDepth : null) : null) + ")";
+            map.BuildToSourceValue = map.HasToTargetScalarConversion || !target.Type.HasMembers
+                ? val => val
+                : val => map.ToSourceMethodName + "(" + val + (isTTSRecursive ? ", depth + 1" + (target.MaxDepth > 1 ? ", " + target.MaxDepth : null) : null) + ")";
         }
 
         map.BuildToSourceMethod = code =>
@@ -174,7 +176,7 @@ internal sealed partial class MappingSet
                                 targetMember,
                                 map.ToTargetMethodName,
                                 map.FillTargetMethodName,
-                                map.RequiresSTTCall));
+                                sourceMember.Type.HasMembers && !map.HasToTargetScalarConversion));
 
                             if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
@@ -202,7 +204,7 @@ internal sealed partial class MappingSet
                                 sourceMember,
                                 map.ToSourceMethodName,
                                 map.FillSourceMethodName,
-                                map.RequiresTTSCall));
+                                targetMember.Type.HasMembers && !map.HasToTargetScalarConversion));
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
@@ -260,7 +262,7 @@ internal sealed partial class MappingSet
                                 targetMember,
                                 memberMap.ToTargetMethodName,
                                 memberMap.FillTargetMethodName,
-                                memberMap.RequiresSTTCall));
+                                sourceMember.Type.HasMembers && !memberMap.HasToTargetScalarConversion));
 
                             if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
@@ -292,7 +294,7 @@ internal sealed partial class MappingSet
                                 sourceMember,
                                 memberMap.ToSourceMethodName,
                                 memberMap.FillSourceMethodName,
-                                memberMap.RequiresTTSCall));
+                                targetMember.Type.HasMembers && !memberMap.HasToSourceScalarConversion));
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);

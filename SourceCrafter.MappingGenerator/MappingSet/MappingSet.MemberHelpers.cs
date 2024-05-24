@@ -49,10 +49,8 @@ internal sealed partial class MappingSet
         if (isFill)
         {
             bool
-                useUnsafeAssignment = (target.IsReadOnly || target is { IsInit: true, OwningType.IsTupleType: false })
-                    && (!target.IsProperty || target.IsAutoProperty),
-                useRefFromUnsafeAccessor = (target.OwningType is { IsReadOnly: false, IsTupleType: false }
-                    && useUnsafeAssignment) || target.Type is { IsMultiMember: true, IsValueType: true };
+                notAssignable = (target.IsReadOnly || target.IsInit) && (!target.IsProperty || target.IsAutoProperty),
+                useRefFromUnsafeAccessor = notAssignable && (target.Type.IsValueType || target.Type.HasMembers) && target.OwningType?.IsTupleType is not true;
 
             string
                 _ref = target.Type.IsValueType ? "ref " : "",
@@ -68,7 +66,7 @@ internal sealed partial class MappingSet
             {
                 if (!canUseUnsafeAccessor) return null;
 
-                if (target.IsNullable)
+                if (target.IsNullable && target.Type.IsValueType)
                 {
                     target.Type.NullableMethodUnsafeAccessor ??= new($@"
     /// <summary>
@@ -93,7 +91,7 @@ internal sealed partial class MappingSet
                     outputVal = "_target" + target.Name,
                     inputVal = "_source" + target.Name,
                     fillFirstParam = useRefFromUnsafeAccessor
-                        ? target.IsNullable
+                        ? target.IsNullable && target.Type.IsValueType
                             ? $"{_ref}{getNullMethodName}(ref {outputVal})"
                             : $"{_ref}{outputVal}"
                         : targetMember;
@@ -146,17 +144,20 @@ internal sealed partial class MappingSet
 ";
                 }
 
-                return $@"{start}
-        {(useRefFromUnsafeAccessor, target.Type.IsMultiMember) switch
-                {
-                    (true, true) => fillMethodName + $"({fillFirstParam}, {sourceMember})",
-                    (_, false) => $"{outputVal} = {GetValue(sourceMember)}",
-                    (false, true) => fillMethodName + $"({targetMember}, {sourceMember})"
-                }};";
+                string value = GetValue(sourceMember);
+
+                return start + @"
+        " + (target.Type.IsIterable is true || !target.Type.HasMembers
+                    ? $"{outputVal} = {value}"
+                    : fillMethodName + $"({fillFirstParam}, {sourceMember})") + ";";
+
+
             }
 
+            string value2 = GetValue(sourceMember);
+
             return $@"
-        {targetMember} = {GetValue(sourceMember)};";
+        {targetMember} = {value2};";
 
         }
         else if (target.CanInit && target.IsWritableAsTarget)
@@ -205,7 +206,7 @@ internal sealed partial class MappingSet
 
         foreach (var attr in target.Attributes)
         {
-            if (attr.AttributeClass?.ToGlobalNamespace() is not { } className) continue;
+            if (attr.AttributeClass?.ToGlobalNamespaced() is not { } className) continue;
 
             if (className == "global::SourceCrafter.Bindings.Attributes.IgnoreBindAttribute")
             {

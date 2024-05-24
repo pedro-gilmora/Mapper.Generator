@@ -37,5 +37,9 @@ public partial class UserDto
     //public UserDto? Supervisor { get; init; }
     public IEnumerable<string> Phrases { get; set; } = Array.Empty<string>();
     public Status Status { get; }
+    public Email? MainEmail { get; set; }
+    public Phone? MainPhone { get; set; }
+    public bool IsAvailable { get; set; }
+    public Guid GlobalId { get; set; }
 
 }

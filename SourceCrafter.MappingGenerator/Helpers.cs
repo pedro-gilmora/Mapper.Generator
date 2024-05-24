@@ -29,7 +29,7 @@ namespace SourceCrafter.Bindings.Helpers
                 genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeVariance,
                 miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
-        internal static string ToGlobalNamespace(this ISymbol t) => t.ToDisplayString(_globalizedNamespace);
+        internal static string ToGlobalNamespaced(this ISymbol t) => t.ToDisplayString(_globalizedNamespace);
         
         internal static string ToGlobalNonGenericNamespace(this ISymbol t) => t.ToDisplayString(_globalizedNonGenericNamespace);
        
@@ -56,10 +56,21 @@ namespace SourceCrafter.Bindings.Helpers
                 or SpecialType.System_String
             || target.Name == "DateTimeOffset"
             || (target.SpecialType is SpecialType.System_Nullable_T 
-                && IsPrimitive(((INamedTypeSymbol)target).TypeArguments[0]));
-
-        internal static ITypeSymbol AsNonNullable(this ITypeSymbol typeSymbol) => typeSymbol.WithNullableAnnotation(NullableAnnotation.None);
+                && IsPrimitive(((INamedTypeSymbol)target).TypeArguments[0])); 
         
+        internal static ITypeSymbol AsNonNullable(this ITypeSymbol type) =>
+            type.Name == "Nullable"
+                ? ((INamedTypeSymbol)type).TypeArguments[0]
+                : type.WithNullableAnnotation(NullableAnnotation.None);
+
+        internal static void TryGetNullable(this ITypeSymbol type, out ITypeSymbol outType, out bool outIsNullable)
+                    => (outType, outIsNullable) = type.SpecialType is SpecialType.System_Nullable_T
+                        || type is INamedTypeSymbol { Name: "Nullable" }
+                            ? (((INamedTypeSymbol)type).TypeArguments[0], true)
+                            : type.NullableAnnotation == NullableAnnotation.Annotated
+                                ? (type.WithNullableAnnotation(NullableAnnotation.None), true)
+                                : (type, false);
+
         internal static bool IsNullable(this ITypeSymbol typeSymbol)
             => typeSymbol.SpecialType is SpecialType.System_Nullable_T 
                 || typeSymbol.NullableAnnotation == NullableAnnotation.Annotated 

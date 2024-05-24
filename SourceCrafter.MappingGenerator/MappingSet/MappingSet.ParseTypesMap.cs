@@ -60,11 +60,6 @@ internal sealed partial class MappingSet
             if (sourceItem.IsNullable)
                 itemMap.AddSTTTryGet = true;
 
-            //target.DataType = map.TargetType;
-            //source.DataType = map.SourceType;
-            //target.ItemDataType = itemMap.TargetType;
-            //source.ItemDataType = itemMap.SourceType;
-
             if (itemMap.CanMap is false ||
                 !(source.Type.CollectionInfo.ItemDataType.HasPublicZeroArgsCtor && target.Type.CollectionInfo.ItemDataType.HasPublicZeroArgsCtor))
             {
