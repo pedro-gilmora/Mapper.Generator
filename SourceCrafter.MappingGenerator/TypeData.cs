@@ -156,9 +156,11 @@ internal sealed class TypeData
 
     Member[] GetAllMembers(ITypeSymbol type)
     {
-        HashSet<Member> members = new(PropertyTypeEqualityComparer.Default);
+        HashSet<Member> members = new(PropertyNameEqualityComparer.Default);
 
         HashSet<int> ids = [];
+
+        var isInterface = type.TypeKind == TypeKind.Interface;
 
         GetMembers(type);
 
@@ -192,11 +194,12 @@ internal sealed class TypeData
                             IsIndexer: false,
                             Type: { } memberType,
                             RefCustomModifiers: { },
+                            IsImplicitlyDeclared: var impl,
                             IsStatic: false,
                             IsReadOnly: var isReadonly,
                             IsWriteOnly: var isWriteOnly,
                             SetMethod: var setMethod
-                        }:
+                        } when isInterface || !impl:
                             int id = MappingSet._comparer.GetHashCode(member);
 
                             members.Add(
@@ -228,20 +231,6 @@ internal sealed class TypeData
                             IsReadOnly: var isReadonly,
 
                         }:
-                            //int id = MappingSet._comparer.GetHashCode(member);
-
-                            //if(associated is IPropertySymbol{} associatedProp)
-                            //{
-                            //    int propId = MappingSet._comparer.GetHashCode(associatedProp);
-
-                            //    if(members.FirstOrDefault(m => m.Id == propId) is { } foundAssocProp)
-                            //    {
-                            //        foundAssocProp.
-                            //    }
-                            //}
-
-                            //if(members.FirstOrDefault(m => )
-
                             members.Add(
                                 new(MappingSet._comparer.GetHashCode(member),
                                     member.ToNameOnly(),
@@ -275,7 +264,7 @@ internal sealed class TypeData
 
     Member[] GetAllMembers(ImmutableArray<IFieldSymbol> tupleFields)
     {
-        HashSet<Member> members = new(PropertyTypeEqualityComparer.Default);
+        HashSet<Member> members = new(PropertyNameEqualityComparer.Default);
 
         if (tupleFields.IsDefaultOrEmpty) return [];
 
@@ -514,15 +503,13 @@ internal sealed class TypeData
         .FirstOrDefault(a => a.AttributeClass?.ToGlobalNamespaced() is "global::System.ComponentModel.DescriptionAttribute")
         ?.ConstructorArguments.FirstOrDefault().Value?.ToString() ?? m.Name.Wordify()}""";
 
-    private class PropertyTypeEqualityComparer : IEqualityComparer<Member>
+    private class PropertyNameEqualityComparer : IEqualityComparer<Member>
     {
-        internal readonly static PropertyTypeEqualityComparer Default = new();
+        internal readonly static PropertyNameEqualityComparer Default = new();
 
-        public bool Equals(Member x, Member y) => GetKey(x) == GetKey(y);
+        public bool Equals(Member x, Member y) => x.Name == y.Name;
 
-        private string GetKey(Member x) => x.Type.Id + "|" + x.Name;
-
-        public int GetHashCode(Member obj) => GetKey(obj).GetHashCode();
+        public int GetHashCode(Member obj) => obj.Name.GetHashCode();
     }
 
     bool IsEnumerableType(string nonGenericFullName, ITypeSymbol type, out CollectionInfo info)

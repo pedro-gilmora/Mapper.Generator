@@ -11,7 +11,7 @@ using SourceCrafter.Bindings.UnitTests;
 namespace SourceCrafter.UnitTests;
 
 //[DefaultMap<User>]
-public interface IUser
+public interface IUserPerson
 {
     //[Map(nameof(WindowsUser.Name))]
     string FullName { get; set; }
@@ -20,7 +20,7 @@ public interface IUser
     string Unwanted { get; set; }
     DateTime DateOfBirth { get; set; }
     double Balance { get; set; }
-    IEnumerable<IUser> Asignees { get; set; }
+    IEnumerable<IUserPerson> Asignees { get; set; }
     Role? MainRole { get; set; }
     Status Status { get; }
 }

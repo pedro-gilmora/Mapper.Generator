@@ -9,7 +9,7 @@ using System.Text.Json.Serialization;
 
 namespace SourceCrafter.UnitTests;
 
-public partial class User //: IUser
+public partial class User : IUserPerson2, IContactableUser //: IUser
 {
     internal string FullName
     {
@@ -25,7 +25,6 @@ public partial class User //: IUser
     public string FirstName { get; set; } = null!;
     public string? LastName { get; set; }
     public int Age { get; set; }
-    //string IUser.FullName { get => FullName; set => FullName = value; }
     public string? Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
     [Bind(nameof(UserDto.TotalAmount))]
@@ -37,10 +36,17 @@ public partial class User //: IUser
     public (string, object)[] ExtendedProperties { get; init; } = [];
     public string[] Phrases { get; set; } = [];
     public Status Status { get; }
-    public IEmail? MainEmail { get; set; }
-    public IPhone? MainPhone { get; set; }
+    public Email? MainEmail { get; set; }
+    public Phone? MainPhone { get; set; }
+    IEmail? IContactableUser.MainEmail { get => MainEmail; set => MainEmail = (Email?)value; }
+    IPhone? IContactableUser.MainPhone { get => MainPhone; set => MainPhone = (Phone?)value; }
+
     public bool IsAvailable { get; set; }
     public Guid GlobalId { get; set; }
+
+    public List<IContact> Contacts { get; } = [];
+public Person? Person { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    //string IUser.FullName { get => FullName; set => FullName = value; }
 }
 public partial class User
 {
@@ -67,6 +73,23 @@ public interface IContact
 {
     string Value { get; set; }
     ContactType ContactType { get; }
+}
+public interface IUserPerson2
+{
+    Person? Person { get; set; }
+}
+public class Person : IPerson
+{
+}
+public interface IPerson
+{
+}
+
+public interface IContactableUser
+{
+    IEmail? MainEmail { get; set; }
+    IPhone? MainPhone { get; set; }
+    List<IContact> Contacts { get; }
 }
 
 [JsonConverter(typeof(JsonNumberEnumConverter<byte>))]
