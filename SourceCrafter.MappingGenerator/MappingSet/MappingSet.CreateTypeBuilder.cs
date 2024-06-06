@@ -245,13 +245,7 @@ internal sealed partial class MappingSet
                     sourceMappingPath,
                     targetMappingPath);
 
-                if (ParseTypesMap(
-                    memberMap,
-                    sourceMember,
-                    targetMember,
-                    ApplyOn.None,
-                    sourceMappingPath,
-                    targetMappingPath) is { CanMap: not false })
+                if (memberMap is { CanMap: not false })
                 {
                     targetMember.OwningType = map.TargetType;
                     sourceMember.OwningType = map.SourceType;

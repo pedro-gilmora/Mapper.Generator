@@ -1,4 +1,5 @@
 global using RenderFlags = (bool defaultMethod, bool fillMethod, bool tryGetMethod, bool tryFill);
+global using ScalarConversion = (bool exists, bool isExplicit);
 
 using System.Runtime.InteropServices;
 

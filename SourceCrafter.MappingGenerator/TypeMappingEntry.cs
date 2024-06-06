@@ -46,7 +46,8 @@ internal class TypeMapping
 
     internal readonly bool
         AreSameType,
-        IsScalar;
+        IsScalar,
+        IsObjectMapping;
 
     internal readonly bool CanDepth,
         IsTupleFromClass,
@@ -197,6 +198,7 @@ internal class TypeMapping
         IsReverseTupleFromClass = source.IsTupleType && target is { IsPrimitive: false, IsIterable: false };
         TargetType = target;
         SourceType = source;
+        IsObjectMapping = source.IsObject || target.IsObject;
 
         if (IsCollection = SourceType.IsIterable && TargetType.IsIterable)
         {

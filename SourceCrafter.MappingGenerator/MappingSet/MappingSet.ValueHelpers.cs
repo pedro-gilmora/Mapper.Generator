@@ -39,6 +39,8 @@ internal sealed partial class MappingSet
         string? defaultSourceBang
     )
     {
+        generateValue ??= (code, _) => code.Append(item);
+
         var indexerBracketPos = item.IndexOf('[');
 
         bool hasIndexer = indexerBracketPos > -1,
@@ -74,6 +76,10 @@ internal sealed partial class MappingSet
                             .Insert(startIndex + count + 1, " ?? default")
                             .Append(defaultSourceBang).Append(")");
                     }
+                    else
+                    {
+                        code.Append(" ?? default").Append(defaultSourceBang);
+                    }
                 }
                 else
                 {
@@ -86,6 +92,7 @@ internal sealed partial class MappingSet
         else
         {
             generateValue(code, itemCache);
+
             code.Append(sourceBang);
         }
     }

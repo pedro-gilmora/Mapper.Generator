@@ -96,9 +96,7 @@ namespace SourceCrafter.Bindings.UnitTests
     {
         public readonly int? Id;
         /* uuid */
-#pragma warning disable CS8632 // The annotation for nullable reference types should only be used in code within a '#nullable' annotations context.
         public string? Uuid { get; set; }
-#pragma warning restore CS8632 // The annotation for nullable reference types should only be used in code within a '#nullable' annotations context.
         public string Name { get; set; }
         public string LastName { get; set; }
         public string UserName { get; set; }

@@ -17,6 +17,7 @@ namespace SourceCrafter.UnitTests;
 
 public partial class UserDto
 {
+    public int Id { get; init; }
     public string FullName { get; set; } = null!;
 
     public int Count { get; set; }

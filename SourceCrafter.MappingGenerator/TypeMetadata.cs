@@ -1,5 +1,6 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using SourceCrafter.Bindings.Constants;
 using SourceCrafter.Bindings.Helpers;
@@ -39,6 +40,7 @@ internal sealed class TypeMetadata
     internal readonly bool
         AllowsNull,
         IsTupleType,
+        IsObject,
         IsReadOnly,
         IsStruct,
         IsInterface,
@@ -93,6 +95,7 @@ internal sealed class TypeMetadata
         SanitizedName = SanitizeTypeName(type);
         AllowsNull = type.AllowsNull();
         NonGenericFullName = type.ToGlobalNonGenericNamespace();
+        IsObject = NonGenericFullName == "object";
         ExportNonGenericFullName = type.ToGlobalNonGenericNamespace();
         IsTupleType = type.IsTupleType;
         IsValueType = type.IsValueType;
@@ -118,37 +121,64 @@ internal sealed class TypeMetadata
             : () => GetAllMembers(typeMapInfo.MembersSource!.AsNonNullable());
     }
 
-    internal bool HasConversionTo(TypeMetadata target, out bool exists, out bool isExplicit)
+    internal bool HasConversionTo(TypeMetadata target, out ScalarConversion toTarget, out ScalarConversion toSource)
     {
-        if (IsTupleType || target.IsTupleType) return exists = isExplicit = false;
+        bool hasConversionResult = hasConversion(this, target, out toTarget);
 
-        var sourceTS = target._type.AsNonNullable();
+        if (target.Id == Id) {
+            toSource = toTarget;
+            return hasConversionResult;
+        }
 
-        var conversion = _compilation.ClassifyConversion(_type, sourceTS);
+        return hasConversionResult | hasConversion(target, this, out toSource);
 
-        exists = conversion is { Exists: true, IsReference: false };
+        bool hasConversion(TypeMetadata source, TypeMetadata target, out ScalarConversion info)
+        {
+            if ((source, target) is not (
+                ({ IsTupleType: false }, { IsTupleType: false }) and
+                ({ DictionaryOwned: false, IsKeyValueType: false }, { DictionaryOwned: false, IsKeyValueType: false })
+            ))
+            {
+                info = default;
+                return false;
+            }
 
-        isExplicit = conversion.IsExplicit;
+            ITypeSymbol 
+                targetTypeSymbol = target._type.AsNonNullable(),
+                sourceTypeSymbol = source._type;
 
-        if (!exists)
-            if (!isExplicit)
-                exists = isExplicit = _type
-                    .GetMembers()
-                    .Any(m => m is IMethodSymbol
-                    {
-                        MethodKind: MethodKind.Conversion,
-                        Parameters: [{ Type: { } firstParam }],
-                        ReturnType: { } returnType
-                    }
-                        && MappingSet.AreTypeEquals(returnType, _type)
-                        && MappingSet.AreTypeEquals(firstParam, sourceTS));
+            var conversion = _compilation.ClassifyConversion(sourceTypeSymbol, targetTypeSymbol);
 
-            else if (IsInterface && _type.AllInterfaces.FirstOrDefault(i => MappingSet._comparer.Equals(sourceTS, i)) is { } impl)
+            info = (conversion.Exists && (source.IsValueType || source.FullName == "string" || source.IsObject), conversion.IsExplicit);
 
-                exists = !(isExplicit = false); 
+            if (!info.exists)
+            {
+                if (!info.isExplicit)
+                {
+                    info.exists = info.isExplicit = sourceTypeSymbol
+                        .GetMembers()
+                        .Any(m => m is IMethodSymbol
+                            {
+                                MethodKind: MethodKind.Conversion,
+                                Parameters: [{ Type: { } firstParam }],
+                                ReturnType: { } returnType
+                            }
+                            && MappingSet.AreTypeEquals(returnType, sourceTypeSymbol)
+                            && MappingSet.AreTypeEquals(firstParam, targetTypeSymbol)
+                        );
+                }
+                else if (source.IsInterface && sourceTypeSymbol.AllInterfaces.FirstOrDefault(target.Equals) is { } impl)
+                {
+                    info.exists = !(info.isExplicit = false);
+                }
+            }
 
-        return exists;
+            info.exists |= info.isExplicit |= source.IsObject && !target.IsObject;
+
+            return info.exists;
+        }
     }
+
 
     MemberMetadata[] GetAllMembers(ITypeSymbol type)
     {

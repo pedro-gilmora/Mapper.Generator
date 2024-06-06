@@ -117,23 +117,11 @@ internal sealed partial class MappingSet
 
         var canMap = false;
 
-        bool isSourceObject = map.SourceType.NonGenericFullName == "object",
-            isTargetObject = map.TargetType.NonGenericFullName == "object";
-
-        if (!(map.SourceType is not { DictionaryOwned: false, IsKeyValueType: false }
-            || map.TargetType is not { DictionaryOwned: false, IsKeyValueType: false }
-            || !map.SourceType.HasConversionTo(map.TargetType, out var exists, out var isExplicit)
-            & !map.TargetType.HasConversionTo(map.SourceType, out var reverseExists, out var isReverseExplicit)
-            && !isSourceObject & !isTargetObject))
+        if (map.SourceType.HasConversionTo(map.TargetType, out var targetScalarConversion, out var sourceScalarConversion))
         {
-            var isObjectMap = isSourceObject || isTargetObject;
-
-            isExplicit |= isSourceObject && !isTargetObject;
-            isReverseExplicit |= !isSourceObject && isTargetObject;
-
-            if (ignore is not ApplyOn.Target or ApplyOn.Both && (exists || isObjectMap))
+            if (ignore is not ApplyOn.Target or ApplyOn.Both && targetScalarConversion.exists)
             {
-                var scalar = isExplicit
+                var scalar = targetScalarConversion.isExplicit
                     ? $@"({map.TargetType.FullName}){{0}}"
                     : "{0}";
 
@@ -142,9 +130,9 @@ internal sealed partial class MappingSet
                 canMap = map.TargetHasScalarConversion = true;
             }
 
-            if (ignore is not ApplyOn.Source or ApplyOn.Both && (reverseExists || isObjectMap))
+            if (ignore is not ApplyOn.Source or ApplyOn.Both && sourceScalarConversion.exists)
             {
-                var scalar = isReverseExplicit
+                var scalar = sourceScalarConversion.isExplicit
                     ? $@"({map.SourceType.FullName}){{0}}"
                     : "{0}";
 
@@ -170,9 +158,7 @@ internal sealed partial class MappingSet
                 return map;
         }
 
-        void CreateKeyValueMapBuilder
-        (
-            TypeMapping map)
+        void CreateKeyValueMapBuilder(TypeMapping map)
         {
             MemberMetadata sourceKeyMember, sourceValueMember, targetKeyMember, targetValueMember;
 
@@ -182,10 +168,14 @@ internal sealed partial class MappingSet
             ))
             {
                 case (false, false):
+
                     GetKeyValueProps(map.SourceType.Members, out sourceKeyMember, out sourceValueMember);
                     GetKeyValueProps(map.TargetType.Members, out targetKeyMember, out targetValueMember);
+
                     break;
+
                 case (false, true):
+
                     GetKeyValueProps(map.SourceType.Members, out sourceKeyMember, out sourceValueMember);
 
                     (targetKeyMember, targetValueMember) = (map.TargetType.Members[0], map.TargetType.Members[1]);
@@ -194,7 +184,9 @@ internal sealed partial class MappingSet
                         (targetValueMember, targetKeyMember) = (targetKeyMember, targetValueMember);
 
                     break;
+
                 case (true, false):
+
                     GetKeyValueProps(map.TargetType.Members, out sourceKeyMember, out sourceValueMember);
 
                     (targetKeyMember, targetValueMember) = (map.SourceType.Members[0], map.SourceType.Members[1]);
@@ -203,9 +195,12 @@ internal sealed partial class MappingSet
                         (targetValueMember, targetKeyMember) = (targetKeyMember, targetValueMember);
 
                     break;
+
                 default:
+
                     sourceKeyMember = sourceValueMember = targetKeyMember = targetValueMember = null!;
                     map.CanMap = false;
+
                     return;
             }
 

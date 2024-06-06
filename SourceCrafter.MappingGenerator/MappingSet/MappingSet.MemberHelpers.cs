@@ -66,7 +66,7 @@ internal sealed partial class MappingSet
 
                 if (source.IsNullable)
                 {
-                    if (target.IsNullable)
+                    if (target.IsNullable && sourceType.HasMembers)
                     {
                         code.Append(@"
         if (source.").Append(source.Name).Append(@" != null)
@@ -170,7 +170,7 @@ internal sealed partial class MappingSet
                     }
                 }
             }
-            else if(target is { IsProperty: true } and { IsInit: false, IsReadOnly: false})
+            else if(target is { IsProperty: true, IsInit: false, IsReadOnly: false} or { OwningType.IsTupleType: true })
             {
                 code.Append(@"
         target.").Append(targetMemberName).Append(" = ");
@@ -180,26 +180,26 @@ internal sealed partial class MappingSet
                 code.Append(';');
             }
 
-            string BuildSourceParam(string sourcePrefix = "source.", bool fill = false)
+            string BuildSourceParam(string sourceExpr = "source.", bool fill = false)
             {
+                sourceExpr += source.Name;
+
+                if (source is {IsNullable: true, Type.IsValueType: true})
+                {
+                    sourceExpr += ".Value";
+                }
+                else if(!target.IsNullable && target.IsNullable)
+                {
+                    sourceExpr += source.Bang;
+                }
+
                 if (!fill && useCopyMethod)
                 {
-                    sourcePrefix =  sourcePrefix + source.Name;
-
-                    if (source is {IsNullable: true, Type.IsValueType: true})
-                    {
-                        sourcePrefix += ".Value";
-                    }
-                    else if(!target.IsNullable && target.IsNullable)
-                    {
-                        sourcePrefix += source.Bang;
-                    }
-
-                    return $"{copyTargetMethodName}({sourcePrefix})";
+                    return $"{copyTargetMethodName}({sourceExpr})";
                 }
                 else
                 {
-                    return sourcePrefix + target.Name;
+                    return sourceExpr;
                 }
             }
         }
@@ -229,7 +229,7 @@ internal sealed partial class MappingSet
                 "source." + source.Name,
                 generateSourceValue,
                 checkNull,
-                !sourceHasScalarConversion && sourceRequiresMapper,
+                (!sourceHasScalarConversion || !source.Type.IsValueType) && sourceRequiresMapper,
                 target.Type.IsValueType,
                 source.Bang,
                 source.DefaultBang);
@@ -243,8 +243,8 @@ internal sealed partial class MappingSet
         return !(target.Name.Equals(
             source.Name,
             ignoreCase
-                ? StringComparison.InvariantCultureIgnoreCase
-                : StringComparison.InvariantCulture)
+                ? StringComparison.OrdinalIgnoreCase
+                : StringComparison.Ordinal)
             | CheckMappability(target, source, ref ignoreSource, ref ignoreTarget)
             | CheckMappability(source, target, ref ignoreTarget, ref ignoreSource));
     }

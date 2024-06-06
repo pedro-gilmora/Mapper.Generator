@@ -11,9 +11,10 @@ namespace SourceCrafter.UnitTests;
 
 public partial class User : IUserPerson2, IContactableUser //: IUser
 {
+    public readonly int? Id;
     internal string FullName
     {
-        get => $"{LastName?.Trim()}, {FirstName?.Trim()}";
+    get => $"{LastName?.Trim()}, {FirstName?.Trim()}";
         set => 
             (FirstName, LastName) = value?.Split(", ") switch
             {
@@ -30,7 +31,7 @@ public partial class User : IUserPerson2, IContactableUser //: IUser
     [Bind(nameof(UserDto.TotalAmount))]
     public double? Balance { get; set; }
     [Max(2)]
-    public IEnumerable<User> Asignees { get; set; } = [];
+    //public IEnumerable<User> Asignees { get; set; } = [];
     public Role MainRole { get; set; }
     public User? Supervisor { get; init; }
     public (string, object)[] ExtendedProperties { get; init; } = [];
