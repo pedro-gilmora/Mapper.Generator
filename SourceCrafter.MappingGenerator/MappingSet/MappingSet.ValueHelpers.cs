@@ -1,15 +1,16 @@
 ﻿using Microsoft.CodeAnalysis;
-using SourceCrafter.Bindings.Constants;
 using SourceCrafter.Bindings.Helpers;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace SourceCrafter.Bindings;
 
-internal delegate string ValueBuilder(string val);
+internal delegate void ValueBuilder(StringBuilder code, string val);
 
 internal sealed partial class MappingSet
 {
-    static void GetNullability(Member target, ITypeSymbol targetType, Member source, ITypeSymbol sourceType)
+    static void GetNullability(MemberMetadata target, ITypeSymbol targetType, MemberMetadata source, ITypeSymbol sourceType)
     {
         source.DefaultBang = GetDefaultBangChar(target.IsNullable, source.IsNullable, sourceType.AllowsNull());
         source.Bang = GetBangChar(target.IsNullable, source.IsNullable);
@@ -23,10 +24,12 @@ internal sealed partial class MappingSet
     static string? GetBangChar(bool isTargetNullable, bool isSourceNullable)
         => !isTargetNullable && isSourceNullable ? "!" : null;
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     static string? Exch(ref string? init, string? update = null) => ((init, update) = (update, init)).update;
 
-    static string GenerateValue
+    static void GenerateValue
     (
+        StringBuilder code,
         string item,
         ValueBuilder generateValue,
         bool checkNull,
@@ -37,25 +40,53 @@ internal sealed partial class MappingSet
     )
     {
         var indexerBracketPos = item.IndexOf('[');
+
         bool hasIndexer = indexerBracketPos > -1,
             shouldCache = checkNull && call && (hasIndexer || item.Contains('.'));
+
         var itemCache = shouldCache
-            ? (hasIndexer ? "_" + item[..indexerBracketPos] : item).Replace(".", "")
+            ? "_" + (hasIndexer ? item[..indexerBracketPos] : item).Replace(".", "")
             : item;
 
-        return checkNull
-            ? call
-              ? $"{item} is {{}} {itemCache} ? {generateValue(itemCache)} : default{defaultSourceBang}"
-              : isValueType && defaultSourceBang != null
-                ? buildNullCoalesceDefault(generateValue(itemCache) + " ?? default!")
-                : generateValue(itemCache) + sourceBang
-            : generateValue(item) + sourceBang;
-
-        string buildNullCoalesceDefault(string value)
+        if (checkNull)
         {
-            return value[0] == '('
-                ? value.Replace(item, "(" + item) + ")"
-                : value;
+            if (call)
+            {
+                code.Append(item).Append(" is {} ").Append(itemCache).Append(" ? ");
+
+                generateValue(code, itemCache);
+                
+                code.Append(" : default").Append(defaultSourceBang);
+            }
+            else
+            {
+                if (isValueType && defaultSourceBang != null)
+                {
+                    int startIndex = code.Length;
+
+                    generateValue(code, itemCache);
+
+                    if (code[startIndex] == '(')
+                    {
+                        int count = code.Length - startIndex;
+
+                        code.Replace(item, "(" + item, startIndex, count)
+                            .Insert(startIndex + count + 1, " ?? default")
+                            .Append(defaultSourceBang).Append(")");
+                    }
+                }
+                else
+                {
+                    generateValue(code, item);
+
+                    code.Append(sourceBang);
+                }
+            }
+        }
+        else
+        {
+            generateValue(code, itemCache);
+            code.Append(sourceBang);
         }
     }
 }

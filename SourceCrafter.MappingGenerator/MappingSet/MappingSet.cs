@@ -34,10 +34,10 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
 
     internal void AddMapper(ITypeSymbol sourceType, ITypeSymbol targetType, ApplyOn ignore, MappingKind mapKind, Action<string, string> addSource)
     {
-        TypeData targetTypeData = typeSet.GetOrAdd(targetType),
+        TypeMetadata targetTypeData = typeSet.GetOrAdd(targetType),
             sourceTypeData = typeSet.GetOrAdd(sourceType);
 
-        TypeMappingInfo typeMapping = BuildMap(targetTypeData, sourceTypeData);
+        TypeMapping typeMapping = BuildMap(targetTypeData, sourceTypeData);
 
         if (!typeMapping.AreSameType)
         {
@@ -45,10 +45,10 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
             BuildMap(sourceTypeData, sourceTypeData);
         }
 
-        TypeMappingInfo BuildMap(TypeData targetTypeData, TypeData sourceTypeData)
+        TypeMapping BuildMap(TypeMetadata targetTypeData, TypeMetadata sourceTypeData)
         {
 
-            Member 
+            MemberMetadata 
                 target = new(++targetScopeId, "to", targetType.IsNullable()), 
                 source = new(--sourceScopeId, "source", sourceType.IsNullable());
 
@@ -86,92 +86,7 @@ public static partial class BindingExtensions
         }
     }
 
-    TypeMappingInfo GetOrAddMapper(ITypeSymbol target, ITypeSymbol source)
-    {
-        var entries = _entries;
-
-        int targetId = GetId(target.AsNonNullable()), sourceId = GetId(source.AsNonNullable());
-
-        var hashCode = GetId(targetId, sourceId);
-
-        uint collisionCount = 0;
-        ref int bucket = ref GetBucket(hashCode);
-        int i = bucket - 1; // Value in _buckets is 1-based
-
-        ref var entry = ref Unsafe.NullRef<TypeMapping>();
-
-        TypeData? targetTD = null, sourceTD = null;
-
-        while (true)
-        {
-            // Should be a while loop https://github.com/dotnet/runtime/issues/9422
-            // Test uint in if rather than loop condition to drop range check for following array access
-            if ((uint)i >= (uint)entries.Length)
-            {
-                break;
-            }
-
-            if (_uintComparer.Equals((entry = ref entries[i]).Id, hashCode))
-            {
-                return entry.Info;
-            }
-
-            entry.Info.CollectTarget(ref targetTD!, targetId);
-            entry.Info.CollectSource(ref sourceTD!, sourceId);
-
-            i = entry.next;
-
-            collisionCount++;
-
-            if (collisionCount > (uint)entries.Length)
-            {
-                // The chain of entries forms a loop; which means a concurrent update has happened.
-                // Break out of the loop and throw, rather than looping forever.
-                throw new NotSupportedException("Concurrent operations are not allowed");
-            }
-
-
-        }
-
-        int index;
-        if (_freeCount > 0)
-        {
-            index = _freeList;
-            Debug.Assert((-3 - entries[_freeList].next) >= -1, "shouldn't overflow because `next` cannot underflow");
-            _freeList = -3 - entries[_freeList].next;
-            _freeCount--;
-        }
-        else
-        {
-            if (_count == entries.Length)
-            {
-                Resize();
-                bucket = ref GetBucket(hashCode);
-            }
-            index = (int)_count;
-            _count++;
-            entries = _entries;
-        }
-
-        entries[index] = new(
-            hashCode,
-            bucket - 1,
-            new(hashCode,
-                targetTD ??= typeSet.GetOrAdd(target),
-                sourceTD ??= typeSet.GetOrAdd(source)));
-
-        entry = ref entries[index];
-
-        entry.next = bucket - 1; // Value in _buckets is 1-based
-
-        bucket = index + 1; // Value in _buckets is 1-based
-
-        _version++;
-
-        return entry.Info;
-    }
-
-    TypeMappingInfo GetOrAddMapper(TypeData target, TypeData source)
+    TypeMapping GetOrAddMapper(TypeMetadata target, TypeMetadata source)
     {
         var entries = _entries;
 
@@ -181,7 +96,7 @@ public static partial class BindingExtensions
         ref int bucket = ref GetBucket(hashCode);
         int i = bucket - 1; // Value in _buckets is 1-based
 
-        ref var entry = ref Unsafe.NullRef<TypeMapping>();
+        ref var entry = ref Unsafe.NullRef<TypeMappingEntry>();
 
         while (true)
         {
@@ -258,7 +173,7 @@ public static partial class BindingExtensions
 
     internal uint _count = 0;
 
-    internal TypeMapping[] _entries = [];
+    internal TypeMappingEntry[] _entries = [];
 
     private int[] _buckets = null!;
     private static readonly uint[] s_primes = [3, 7, 11, 17, 23, 29, 37, 47, 59, 71, 89, 107, 131, 163, 197, 239, 293, 353, 431, 521, 631, 761, 919, 1103, 1327, 1597, 1931, 2333, 2801, 3371, 4049, 4861, 5839, 7013, 8419, 10103, 12143, 14591, 17519, 21023, 25229, 30293, 36353, 43627, 52361, 62851, 75431, 90523, 108631, 130363, 156437, 187751, 225307, 270371, 324449, 389357, 467237, 560689, 672827, 807403, 968897, 1162687, 1395263, 1674319, 2009191, 2411033, 2893249, 3471899, 4166287, 4999559, 5999471, 7199369];
@@ -303,7 +218,7 @@ public static partial class BindingExtensions
         typeSet.Initialize(0);
         var prime = GetPrime(capacity);
         var buckets = new int[prime];
-        var entries = new TypeMapping[prime];
+        var entries = new TypeMappingEntry[prime];
 
         _freeList = -1;
 #if TARGET_64BIT
@@ -332,7 +247,7 @@ public static partial class BindingExtensions
 
     private void Resize(uint newSize)
     {
-        var array = new TypeMapping[newSize];
+        var array = new TypeMappingEntry[newSize];
 
         Array.Copy(_entries, array, _count);
 

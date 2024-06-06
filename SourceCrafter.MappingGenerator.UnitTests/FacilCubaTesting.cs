@@ -1,4 +1,5 @@
-﻿using SourceCrafter.Bindings.Attributes;
+﻿#nullable disable
+using SourceCrafter.Bindings.Attributes;
 using System.Transactions;
 using Xunit;
 using SourceCrafter.Bindings;

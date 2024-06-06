@@ -36,16 +36,16 @@ public partial class User : IUserPerson2, IContactableUser //: IUser
     public (string, object)[] ExtendedProperties { get; init; } = [];
     public string[] Phrases { get; set; } = [];
     public Status Status { get; }
-    public Email? MainEmail { get; set; }
-    public Phone? MainPhone { get; set; }
-    IEmail? IContactableUser.MainEmail { get => MainEmail; set => MainEmail = (Email?)value; }
-    IPhone? IContactableUser.MainPhone { get => MainPhone; set => MainPhone = (Phone?)value; }
+    public IEmail? MainEmail { get; set; }
+    public IPhone? MainPhone { get; set; }
+    //IEmail? IContactableUser.MainEmail { get => MainEmail; set => MainEmail = (Email?)value; }
+    //IPhone? IContactableUser.MainPhone { get => MainPhone; set => MainPhone = (Phone?)value; }
 
     public bool IsAvailable { get; set; }
     public Guid GlobalId { get; set; }
 
     public List<IContact> Contacts { get; } = [];
-public Person? Person { get => throw new NotImplementedException(); set => throw new NotImplementedException(); }
+    public Person? Person { get; set; }
     //string IUser.FullName { get => FullName; set => FullName = value; }
 }
 public partial class User

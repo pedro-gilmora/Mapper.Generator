@@ -6,17 +6,18 @@ using SourceCrafter.Bindings.Helpers;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Text;
 
 namespace SourceCrafter.Bindings;
 
 internal sealed partial class MappingSet
 {
-    TypeMappingInfo ParseTypesMap
+    TypeMapping ParseTypesMap
     (
-        TypeMappingInfo map,
-        Member source,
-        Member target,
+        TypeMapping map,
+        MemberMetadata source,
+        MemberMetadata target,
         ApplyOn ignore,
         string sourceMappingPath,
         string targetMappingPath)
@@ -43,7 +44,7 @@ internal sealed partial class MappingSet
             int targetItemId = target.Type.CollectionInfo.ItemDataType.Id,
                 sourceItemId = source.Type.CollectionInfo.ItemDataType.Id;
 
-            Member
+            MemberMetadata
                 targetItem = new(target.Id, target.Name + "Item", target.Type.CollectionInfo.IsItemNullable),
                 sourceItem = new(source.Id, source.Name + "Item", source.Type.CollectionInfo.IsItemNullable);
 
@@ -55,10 +56,10 @@ internal sealed partial class MappingSet
             itemMap.SourceType.IsRecursive |= itemMap.SourceType.IsRecursive;
 
             if (targetItem.IsNullable)
-                itemMap.AddTTSTryGet = true;
+                itemMap.AddSourceTryGet = true;
 
             if (sourceItem.IsNullable)
-                itemMap.AddSTTTryGet = true;
+                itemMap.AddTargetTryGet = true;
 
             if (itemMap.CanMap is false ||
                 !(source.Type.CollectionInfo.ItemDataType.HasPublicZeroArgsCtor && target.Type.CollectionInfo.ItemDataType.HasPublicZeroArgsCtor))
@@ -79,34 +80,34 @@ internal sealed partial class MappingSet
             if (itemMap.CanMap is true && map.CanMap is null && true ==
                 (map.CanMap =
                     ignore is not ApplyOn.Target or ApplyOn.Both &&
-                    (!itemMap.TargetType.IsInterface && (map.RequiresSTTCall = CreateCollectionMapBuilders(
+                    (!itemMap.TargetType.IsInterface && (map.TargetRequiresMapper = CreateCollectionMapBuilders(
                         source,
                         target,
                         sourceItem,
                         targetItem,
-                        map.RequiresSTTCall,
+                        map.TargetRequiresMapper,
                         source.Type.CollectionInfo,
                         target.Type.CollectionInfo,
-                        map.STTCollectionMapping,
-                        itemMap.BuildToTargetValue,
-                        itemMap.STTKeyValueMapping,
-                        ref map.BuildToTargetValue,
-                        ref map.BuildToTargetMethod)))
+                        map.TargetCollectionMap,
+                        itemMap.BuildTargetValue,
+                        itemMap.TargetKeyValueMap,
+                        ref map.BuildTargetValue,
+                        ref map.BuildTargetMethod)))
                     |
                     (ignore is not ApplyOn.Source or ApplyOn.Both &&
-                     !itemMap.SourceType.IsInterface && (map.RequiresTTSCall = CreateCollectionMapBuilders(
+                    !itemMap.SourceType.IsInterface && (map.SourceRequiresMapper = CreateCollectionMapBuilders(
                         target,
                         source,
                         targetItem,
                         sourceItem,
-                        map.RequiresTTSCall,
+                        map.SourceRequiresMapper,
                         target.Type.CollectionInfo,
                         source.Type.CollectionInfo,
-                        map.TTSCollectionMapping,
-                        itemMap.BuildToSourceValue,
-                        itemMap.TTSKeyValueMapping,
-                        ref map.BuildToSourceValue,
-                        ref map.BuildToSourceMethod))))
+                        map.SourceCollectionMap,
+                        itemMap.BuildSourceValue,
+                        itemMap.SourceKeyValueMap,
+                        ref map.BuildSourceValue,
+                        ref map.BuildSourceMethod))))
             )
             {
                 map.AuxiliarMappings += itemMap.BuildMethods;
@@ -139,22 +140,22 @@ internal sealed partial class MappingSet
             {
                 var scalar = isExplicit
                     ? $@"({map.TargetType.FullName}){{0}}"
-                    : $@"{{0}}";
+                    : "{0}";
 
-                map.BuildToTargetValue = value => scalar.Replace("{0}", value);
+                map.BuildTargetValue = (code, value) => code.AppendFormat(scalar, value);
 
-                canMap = map.HasToTargetScalarConversion = true;
+                canMap = map.TargetHasScalarConversion = true;
             }
 
             if (ignore is not ApplyOn.Source or ApplyOn.Both && (reverseExists || isObjectMap))
             {
                 var scalar = isReverseExplicit
                     ? $@"({map.SourceType.FullName}){{0}}"
-                    : $@"{{0}}";
+                    : "{0}";
 
-                map.BuildToSourceValue = value => scalar.Replace("{0}", value);
+                map.BuildSourceValue = (code, value) => code.AppendFormat(scalar, value);
 
-                canMap = map.HasToSourceScalarConversion = true;
+                canMap = map.SourceHasScalarConversion = true;
             }
         }
 
@@ -176,9 +177,9 @@ internal sealed partial class MappingSet
 
         void CreateKeyValueMapBuilder
         (
-            TypeMappingInfo map)
+            TypeMapping map)
         {
-            Member sourceKeyMember, sourceValueMember, targetKeyMember, targetValueMember;
+            MemberMetadata sourceKeyMember, sourceValueMember, targetKeyMember, targetValueMember;
 
             switch ((
                 map.SourceType is { IsTupleType: true, Members.Length: 2 },
@@ -213,13 +214,13 @@ internal sealed partial class MappingSet
                     return;
             }
 
-            TypeData
+            TypeMetadata
                 sourceKeyType = sourceKeyMember.Type,
                 sourceValueType = sourceValueMember.Type,
                 targetKeyType = targetKeyMember.Type,
                 targetValueType = targetValueMember.Type;
 
-            TypeMappingInfo
+            TypeMapping
                 keyMapping = GetOrAddMapper(sourceKeyType, targetKeyType),
                 valueMapping = GetOrAddMapper(sourceValueType, targetValueType);
 
@@ -240,49 +241,83 @@ internal sealed partial class MappingSet
                 targetValueFieldName = targetValueMember.Name;
 
             KeyValueMappings
-                stt = map.STTKeyValueMapping = new(
-                    src => GenerateValue(src + "." + targetKeyMember.Name, keyMapping.BuildToTargetValue, checkKeyFieldNull, false, targetKeyMember.Type.IsValueType, sourceKeyMember.Bang, sourceKeyMember.DefaultBang),
-                    src => GenerateValue(src + "." + targetValueMember.Name, valueMapping.BuildToTargetValue, checkValueFieldNull, false, targetValueMember.Type.IsValueType, targetKeyMember.Bang, targetKeyMember.DefaultBang)),
-                tts = map.TTSKeyValueMapping = new(
-                    src => GenerateValue(src + "." + sourceKeyMember.Name, keyMapping.BuildToSourceValue, checkKeyPropNull, false, sourceKeyMember.Type.IsValueType, sourceValueMember.Bang, sourceValueMember.DefaultBang),
-                    src => GenerateValue(src + "." + sourceValueMember.Name, valueMapping.BuildToSourceValue, checkValuePropNull, false, sourceValueMember.Type.IsValueType, targetValueMember.Bang, targetValueMember.DefaultBang));
+                stt = map.TargetKeyValueMap = new(
+                    (code, id) => GenerateValue(code, id + "." + targetKeyMember.Name, keyMapping.BuildTargetValue, checkKeyFieldNull, false, targetKeyMember.Type.IsValueType, sourceKeyMember.Bang, sourceKeyMember.DefaultBang),
+                    (code, id) => GenerateValue(code, id + "." + targetValueMember.Name, valueMapping.BuildTargetValue, checkValueFieldNull, false, targetValueMember.Type.IsValueType, targetKeyMember.Bang, targetKeyMember.DefaultBang)),
+                tts = map.SourceKeyValueMap = new(
+                    (code, id) => GenerateValue(code, id + "." + sourceKeyMember.Name, keyMapping.BuildSourceValue, checkKeyPropNull, false, sourceKeyMember.Type.IsValueType, sourceValueMember.Bang, sourceValueMember.DefaultBang),
+                    (code, id) => GenerateValue(code, id + "." + sourceValueMember.Name, valueMapping.BuildSourceValue, checkValuePropNull, false, sourceValueMember.Type.IsValueType, targetValueMember.Bang, targetValueMember.DefaultBang));
 
-            var buildTargetValue = map.BuildToTargetValue = sb =>
-                string.Format(@" new {0}({1}, {2})", map.TargetType.NotNullFullName, stt.Key(sb), stt.Value(sb));
+            var buildTargetValue = map.BuildTargetValue = (code, sb) =>
+            {
+                code.Append(" new ").Append(map.TargetType.NotNullFullName).Append(@"("); stt.Key(code, sb); code.Append(", "); stt.Value(code, sb);
+            };
 
-            map.BuildToTargetMethod = sb =>
-                sb.AppendFormat(@"
-        public static {0} {1}(ref this {2} source)
-        {{
-            return {3};
-        }}",
-                    map.TargetType.NotNullFullName,
-                    map.ToTargetMethodName,
-                    map.SourceType.NotNullFullName,
-                    buildTargetValue("source"));
+            map.BuildTargetMethod = (StringBuilder code, ref RenderFlags isRendered) =>
+            {
+                if (isRendered.defaultMethod)
+                    return;
 
-            var buildSourceValue = map.BuildToSourceValue = sb =>
-                string.Format(@"({0}, {1})",
-                    tts.Key(sb),
-                    tts.Value(sb));
+                isRendered.defaultMethod = true;
 
-            map.BuildToSourceMethod = sb =>
-                sb.AppendFormat(@"
-        public static {0} {1}(ref this {2} source)
-        {{
-            return {3};
-        }}",
-                    map.SourceType.NotNullFullName,
-                    map.ToSourceMethodName,
-                    map.TargetType.NotNullFullName,
-                    buildSourceValue("source"));
+                code
+                    .Append(@"
+    public static ")
+                    .Append(map.TargetType.NotNullFullName)
+                    .AddSpace()
+                    .Append(map.ToTargetMethodName)
+                    .Append("(ref this ")
+                    .Append(map.SourceType.NotNullFullName)
+                    .Append(@" source)
+    {
+        return ");
+
+                buildTargetValue(code, "source");
+
+                code.Append(@";
+    }");
+            };
+
+            var buildSourceValue = map.BuildSourceValue = (code, sb) =>
+            {
+                code.Append("(");
+                tts.Key(code, sb);
+                code.Append(", ");
+                tts.Value(code, sb); 
+                code.Append(")");
+            };
+
+            map.BuildSourceMethod = (StringBuilder code, ref RenderFlags isRendered) =>
+            {
+                if (isRendered.defaultMethod)
+                    return;
+
+                isRendered.defaultMethod = true;
+
+                code
+                    .Append(@"
+    public static ")
+                    .Append(map.SourceType.NotNullFullName)
+                    .AddSpace()
+                    .Append(map.ToSourceMethodName)
+                    .Append("(ref this ")
+                    .Append(map.TargetType.NotNullFullName)
+                    .Append(@" source)
+    {
+        return ");
+
+                buildSourceValue(code, "source");
+
+                code.Append(@";
+    }");
+            };
 
             map.CanMap = true;
 
         }
     }
 
-    private void GetKeyValueProps(Span<Member> members, out Member keyProp, out Member valueProp)
+    private void GetKeyValueProps(Span<MemberMetadata> members, out MemberMetadata keyProp, out MemberMetadata valueProp)
     {
         keyProp = null!;
         valueProp = null!;

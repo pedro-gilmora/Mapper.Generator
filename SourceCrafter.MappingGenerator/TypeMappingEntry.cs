@@ -1,31 +1,30 @@
 ﻿using Microsoft.CodeAnalysis;
 using SourceCrafter.Bindings.Constants;
-using SourceCrafter.Bindings;
 using System;
 using System.Text;
-using System.Security.Cryptography;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using SourceCrafter.Bindings.Helpers;
 
 namespace SourceCrafter.Bindings;
 
-internal struct TypeMapping(uint id, int _next, TypeMappingInfo info)
+delegate void MethodRenderer(StringBuilder code, ref RenderFlags rendered);
+
+internal struct TypeMappingEntry(uint id, int _next, TypeMapping info)
 {
     internal readonly uint
         Id = id;
 
     internal int next = _next;
-    internal readonly TypeMappingInfo Info = info;
+    internal readonly TypeMapping Info = info;
 }
 
 #pragma warning disable CS8618
-internal class TypeMappingInfo
+internal class TypeMapping
 #pragma warning restore CS8618
 {
     internal ValueBuilder
-        BuildToTargetValue = default!,
-        BuildToSourceValue = default!;
+        BuildTargetValue = default!,
+        BuildSourceValue = default!;
 
     internal readonly string
         ToTargetMethodName,
@@ -56,40 +55,40 @@ internal class TypeMappingInfo
 
     internal bool? CanMap;
 
-    internal readonly TypeData TargetType, SourceType;
+    internal readonly TypeMetadata TargetType, SourceType;
 
-    internal CollectionMapping TTSCollectionMapping, STTCollectionMapping;
+    internal CollectionMapping SourceCollectionMap, TargetCollectionMap;
 
     internal uint ItemMapId;
 
     internal bool
-        AddTTSTryGet,
-        AddSTTTryGet,
-        HasToTargetScalarConversion,
-        HasToSourceScalarConversion,
-        RequiresSTTCall,
-        RequiresTTSCall,
-        RenderedSTTDefaultMethod, RenderedSTTTryGetMethod, RenderedSTTFillMethod,
-        RenderedTTSDefaultMethod, RenderedTTSTryGetMethod, RenderedTTSFillMethod,
+        AddSourceTryGet,
+        AddTargetTryGet,
+        TargetHasScalarConversion,
+        SourceHasScalarConversion,
+        TargetRequiresMapper,
+        SourceRequiresMapper,
         IsCollection;
 
+    internal RenderFlags sourceRenderFlags, targetRenderFlags;
 
-    internal bool IsSTTRendered => RenderedSTTDefaultMethod && RenderedSTTTryGetMethod && RenderedSTTFillMethod;
-    internal bool IsTTSRendered => RenderedTTSDefaultMethod && RenderedTTSTryGetMethod && RenderedTTSFillMethod;
 
+    internal bool IsTargetRendered => targetRenderFlags is not (false, false, false, false);
+    internal bool IsSourceRendered => sourceRenderFlags is not (false, false, false, false);
+
+    internal int TargetMemberCount, SourceMemberCount;
+
+    internal MethodRenderer? BuildTargetMethod, BuildSourceMethod;
+
+    internal KeyValueMappings? TargetKeyValueMap, SourceKeyValueMap;
 
     internal MappingKind MappingsKind { get; set; }
 
-    internal int STTMemberCount, TTSMemberCount;
+    internal bool HasTargetToSourceMap => SourceHasScalarConversion || IsCollection is true || SourceMemberCount > 0;
 
-    internal Action<StringBuilder>? BuildToTargetMethod, BuildToSourceMethod;
-    internal KeyValueMappings? STTKeyValueMapping, TTSKeyValueMapping;
+    internal bool HasSourceToTargetMap => TargetHasScalarConversion || IsCollection is true || TargetMemberCount > 0;
 
-    internal bool HasTargetToSourceMap => HasToSourceScalarConversion || IsCollection is true || TTSMemberCount > 0;
-
-    internal bool HasSourceToTargetMap => HasToTargetScalarConversion || IsCollection is true || STTMemberCount > 0;
-
-    internal void CollectTarget(ref TypeData existingTarget, int targetId)
+    internal void CollectTarget(ref TypeMetadata existingTarget, int targetId)
     {
         if (TargetType.Id == targetId)
             existingTarget = TargetType;
@@ -97,7 +96,7 @@ internal class TypeMappingInfo
             existingTarget = SourceType;
     }
 
-    internal void CollectSource(ref TypeData existingSource, int sourceId)
+    internal void CollectSource(ref TypeMetadata existingSource, int sourceId)
     {
         if (SourceType.Id == sourceId)
             existingSource = SourceType;
@@ -107,7 +106,7 @@ internal class TypeMappingInfo
 
     public override string ToString() => $"{TargetType.FullName} <=> {SourceType.FullName}";
 
-    internal void EnsureDirection(ref Member target, ref Member source)
+    internal void EnsureDirection(ref MemberMetadata target, ref MemberMetadata source)
     {
         target.Type ??= TargetType;
         source.Type ??= SourceType;
@@ -155,18 +154,18 @@ internal class TypeMappingInfo
 
         if (HasSourceToTargetMap)
         {
-            BuildToTargetMethod?.Invoke(code);
+            BuildTargetMethod?.Invoke(code, ref targetRenderFlags);
         }
 
         if (!AreSameType && HasTargetToSourceMap)
         {
-            BuildToSourceMethod?.Invoke(code);
+            BuildSourceMethod?.Invoke(code, ref sourceRenderFlags);
         }
 
         AuxiliarMappings?.Invoke(code);
     }
 
-    public TypeMappingInfo(uint id, TypeData target, TypeData source)
+    public TypeMapping(uint id, TypeMetadata target, TypeMetadata source)
     {
         var sameType = target.Id == source.Id;
 
@@ -199,32 +198,32 @@ internal class TypeMappingInfo
         TargetType = target;
         SourceType = source;
 
-        if (IsCollection = SourceType.IsIterable is true && TargetType.IsIterable is true)
+        if (IsCollection = SourceType.IsIterable && TargetType.IsIterable)
         {
-            STTCollectionMapping = BuildCollectionMapping(SourceType.CollectionInfo, TargetType.CollectionInfo, ToSourceMethodName, FillSourceMethodName);
-            TTSCollectionMapping = BuildCollectionMapping(TargetType.CollectionInfo, SourceType.CollectionInfo, ToTargetMethodName, FillTargetMethodName);
+            TargetCollectionMap = BuildCollectionMapping(SourceType.CollectionInfo, TargetType.CollectionInfo, ToTargetMethodName, FillTargetMethodName);
+            SourceCollectionMap = BuildCollectionMapping(TargetType.CollectionInfo, SourceType.CollectionInfo, ToSourceMethodName, FillSourceMethodName);
         }
     }
 
-    static CollectionMapping BuildCollectionMapping(CollectionInfo a, CollectionInfo b, string toMethodName, string fillMethodName)
+    static CollectionMapping BuildCollectionMapping(CollectionInfo source, CollectionInfo target, string copyMethodName, string fillMethodName)
     {
-        bool redim = !a.Countable && b.BackingArray,
-            isDictionary = a.IsDictionary && b.IsDictionary || CanMap(a, b) || CanMap(b, a);
+        bool redim = !source.Countable && target.BackingArray,
+            isDictionary = source.IsDictionary && target.IsDictionary || CanMap(source, target) || CanMap(target, source);
 
-        var iterator = !isDictionary && a.Indexable && b.BackingArray ? "for" : "foreach";
+        var iterator = !isDictionary && source.Indexable && target.BackingArray ? "for" : "foreach";
 
-        return new(isDictionary, b.BackingArray, b.BackingArray && !a.Indexable, iterator, redim, b.Method, toMethodName, fillMethodName);
+        return new(isDictionary, target.BackingArray, target.BackingArray && !source.Indexable, iterator, redim, target.Method, copyMethodName, fillMethodName);
 
-        static bool CanMap(CollectionInfo a, CollectionInfo b)
+        static bool CanMap(CollectionInfo source, CollectionInfo target)
         {
-            return a.IsDictionary && b.ItemDataType._type is INamedTypeSymbol { IsTupleType: true, TupleElements.Length: 2 };
+            return source.IsDictionary && target.ItemDataType._type is INamedTypeSymbol { IsTupleType: true, TupleElements.Length: 2 };
         }
     }
 }
 
 
 readonly record struct CollectionInfo(
-    TypeData ItemDataType,
+    TypeMetadata ItemDataType,
     EnumerableType Type,
     bool IsItemNullable,
     bool Indexable,

@@ -2,6 +2,8 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using System.Text;
+
 using Microsoft.CodeAnalysis;
 using SourceCrafter.Bindings.Helpers;
 
@@ -54,7 +56,7 @@ namespace SourceCrafter.Bindings.Helpers
                 or SpecialType.System_UInt32
                 or SpecialType.System_UInt64
                 or SpecialType.System_String
-            || target.Name == "DateTimeOffset"
+            || target.Name is "DateTimeOffset" or "Guid"
             || (target.SpecialType is SpecialType.System_Nullable_T 
                 && IsPrimitive(((INamedTypeSymbol)target).TypeArguments[0])); 
         
@@ -86,6 +88,21 @@ namespace SourceCrafter.Bindings.Helpers
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static string Wordify(this string identifier, short upper = 0)
             => ToJoined(identifier, " ", upper);
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static StringBuilder AddSpace(this StringBuilder sb, int count = 1) => sb.Append(new string(' ', count));
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static StringBuilder CaptureGeneratedString(this StringBuilder code, Action action, out string expression)
+        {
+            int start = code.Length, end = code.Length;
+            action();
+            end = code.Length;
+            char[] e = new char[end - start];
+            code.CopyTo(start, e, 0, end - start);
+            expression = new(e, 0, e.Length);
+            return code;
+        }
 
         static string ToJoined(string identifier, string separator = "-", short casing = 0)
         {

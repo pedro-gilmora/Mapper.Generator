@@ -13,10 +13,11 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Reflection;
+using System.Data;
 
 namespace SourceCrafter.Bindings;
 
-internal sealed class TypeData
+internal sealed class TypeMetadata
 {
     internal readonly int Id;
 
@@ -28,6 +29,7 @@ internal sealed class TypeData
         SanitizedName,
         ExportFullName,
         ExportNotNullFullName;
+
     private readonly TypeSet _typeSet;
     private readonly Compilation _compilation;
 
@@ -50,22 +52,21 @@ internal sealed class TypeData
         IsReference,
         HasPublicZeroArgsCtor,
         IsPrimitive,
-        IsEnum;
-
-    internal bool? IsIterable;
+        IsEnum,
+        IsIterable;
 
     internal bool IsRecursive;
     internal readonly bool DictionaryOwned;
 
-    Member[]? _members = null;
+    private MemberMetadata[]? _members = null;
 
-    private Func<Member[]> _getMembers = null!;
+    private readonly Func<MemberMetadata[]> _getMembers = null!;
 
     internal bool HasMembers => !Members.IsEmpty;
 
-    internal Span<Member> Members => _members ??= _getMembers();
+    internal Span<MemberMetadata> Members => _members ??= _getMembers();
 
-    internal TypeData(TypeSet typeSet, Compilation compilation, TypeImplInfo typeMapInfo, int typeId, bool dictionaryOwned)
+    internal TypeMetadata(TypeSet typeSet, Compilation compilation, TypeImplInfo typeMapInfo, int typeId, bool dictionaryOwned)
     {
         var type = typeMapInfo.Implementation ?? typeMapInfo.MembersSource;
         _typeSet = typeSet;
@@ -122,7 +123,7 @@ internal sealed class TypeData
             : () => GetAllMembers(typeMapInfo.MembersSource!.AsNonNullable());
     }
 
-    internal bool HasConversionTo(TypeData target, out bool exists, out bool isExplicit)
+    internal bool HasConversionTo(TypeMetadata target, out bool exists, out bool isExplicit)
     {
         if (IsTupleType || target.IsTupleType) return exists = isExplicit = false;
 
@@ -154,9 +155,9 @@ internal sealed class TypeData
         return exists;
     }
 
-    Member[] GetAllMembers(ITypeSymbol type)
+    MemberMetadata[] GetAllMembers(ITypeSymbol type)
     {
-        HashSet<Member> members = new(PropertyNameEqualityComparer.Default);
+        HashSet<MemberMetadata> members = new(PropertyNameEqualityComparer.Default);
 
         HashSet<int> ids = [];
 
@@ -182,7 +183,7 @@ internal sealed class TypeData
                     if (member.DeclaredAccessibility is not (Accessibility.Internal or Accessibility.Friend or Accessibility.Public))
                         continue;
 
-                    var canWrite = member.DeclaredAccessibility is Accessibility.Public ||
+                    var isAccessible = member.DeclaredAccessibility is Accessibility.Public ||
                             MappingSet._comparer.Equals(_compilation.SourceModule, member.ContainingModule);
 
 
@@ -208,16 +209,16 @@ internal sealed class TypeData
                                     memberType.IsNullable(),
                                     isReadonly,
                                     isWriteOnly,
-                                    member.GetAttributes(),
                                     setMethod?.IsInitOnly == true,
                                     true,
-                                    true)
+                                    true,
+                                    member.GetAttributes())
                                 {
                                     Type = _typeSet.GetOrAdd(memberType),
-                                    CanInit = !isReadonly,
+                                    CanBeInitialized = !isReadonly,
                                     IsAutoProperty = ids.Contains(id),
                                     Position = i++,
-                                    IsWritableAsTarget = canWrite
+                                    IsAccessible = isAccessible
                                 });
 
                             continue;
@@ -237,12 +238,13 @@ internal sealed class TypeData
                                     memberType.IsNullable(),
                                     true,
                                     !isReadonly,
-                                    member.GetAttributes(),
-                                    true)
+                                    true,
+                                    Attributes: member.GetAttributes())
                                 {
                                     Type = _typeSet.GetOrAdd(memberType.AsNonNullable()),
                                     Position = i++,
-                                    IsWritableAsTarget = canWrite
+                                    CanBeInitialized = !isReadonly,
+                                    IsAccessible = isAccessible
                                 });
 
                             continue;
@@ -262,9 +264,9 @@ internal sealed class TypeData
         }
     }
 
-    Member[] GetAllMembers(ImmutableArray<IFieldSymbol> tupleFields)
+    MemberMetadata[] GetAllMembers(ImmutableArray<IFieldSymbol> tupleFields)
     {
-        HashSet<Member> members = new(PropertyNameEqualityComparer.Default);
+        HashSet<MemberMetadata> members = new(PropertyNameEqualityComparer.Default);
 
         if (tupleFields.IsDefaultOrEmpty) return [];
 
@@ -275,8 +277,8 @@ internal sealed class TypeData
                     member.Type.IsNullable(),
                     false,
                     false,
-                    ImmutableArray<AttributeData>.Empty,
-                    true)
+                    true,
+                    Attributes: ImmutableArray<AttributeData>.Empty)
                 {
                     Type = _typeSet.GetOrAdd(member.Type.AsNonNullable())
                 });
@@ -284,7 +286,7 @@ internal sealed class TypeData
         return [.. members];
     }
 
-    internal bool Equals(TypeData obj) => MappingSet._comparer.Equals(_type, obj._type);
+    internal bool Equals(TypeMetadata obj) => MappingSet._comparer.Equals(_type, obj._type);
 
     public override string ToString() => FullName;
 
@@ -302,20 +304,42 @@ internal sealed class TypeData
         }
     }
 
-    static string SanitizeTypeName(ITypeSymbol type)
+    string SanitizeTypeName(ITypeSymbol type)
     {
+        //string sanitizedTypeName = sanitizeTypeName();
+
+        //if (!_typeSet.sanitizedNames.Add(sanitizedTypeName) && type.ContainingNamespace is { } ns)
+        //{
+        //    while (ns != null && !_typeSet.sanitizedNames.Add(sanitizedTypeName = ns.ToNameOnly() + sanitizedTypeName))
+        //    {
+        //        ns = ns.ContainingNamespace;
+        //    }
+        //}
+
+        //return sanitizedTypeName;
+
+        //string sanitizeTypeName()
+        //{
         switch (type)
         {
             case INamedTypeSymbol { IsTupleType: true, TupleElements: { Length: > 0 } els }:
+
                 return "TupleOf" + string.Join("", els.Select(f => SanitizeTypeName(f.Type)));
+                
             case INamedTypeSymbol { IsGenericType: true, TypeArguments: { } args }:
+                
                 return type.Name + "Of" + string.Join("", args.Select(SanitizeTypeName));
+                
             default:
+                
                 string typeName = type.ToTypeNameFormat();
+                    
                 if (type is IArrayTypeSymbol { ElementType: { } elType })
                     typeName = SanitizeTypeName(elType) + "Array";
+                    
                 return char.ToUpperInvariant(typeName[0]) + typeName[1..].TrimEnd('?', '_');
         };
+        //}
     }
 
     internal void BuildEnumMethods(StringBuilder code)
@@ -503,13 +527,13 @@ internal sealed class TypeData
         .FirstOrDefault(a => a.AttributeClass?.ToGlobalNamespaced() is "global::System.ComponentModel.DescriptionAttribute")
         ?.ConstructorArguments.FirstOrDefault().Value?.ToString() ?? m.Name.Wordify()}""";
 
-    private class PropertyNameEqualityComparer : IEqualityComparer<Member>
+    private class PropertyNameEqualityComparer : IEqualityComparer<MemberMetadata>
     {
         internal readonly static PropertyNameEqualityComparer Default = new();
 
-        public bool Equals(Member x, Member y) => x.Name == y.Name;
+        public bool Equals(MemberMetadata x, MemberMetadata y) => x.Name == y.Name;
 
-        public int GetHashCode(Member obj) => obj.Name.GetHashCode();
+        public int GetHashCode(MemberMetadata obj) => obj.Name.GetHashCode();
     }
 
     bool IsEnumerableType(string nonGenericFullName, ITypeSymbol type, out CollectionInfo info)
@@ -613,7 +637,7 @@ internal sealed class TypeData
     {
         typeSymbol = typeSymbol.AsNonNullable();
 
-        TypeData itemDataType = _typeSet.GetOrAdd(typeSymbol, enumerableType == EnumerableType.Dictionary);
+        TypeMetadata itemDataType = _typeSet.GetOrAdd(typeSymbol, enumerableType == EnumerableType.Dictionary);
 
         return enumerableType switch
         {
@@ -639,19 +663,19 @@ internal sealed class TypeData
 #pragma warning restore format
         };
     }
-}
-
-internal record PropertyCodeRenderer(string Key, string Code) : MemberCodeRenderer(Code);
-
-internal record MemberCodeRenderer(string Code)
-{
-    internal bool Rendered { get; set; }
-
-    internal void Render(StringBuilder code)
-    {
-        if (Rendered) return;
-
-        Rendered = true;
-        code.Append(Code);
     }
-}
+
+    internal record PropertyCodeRenderer(string Key, string Code) : MemberCodeRenderer(Code);
+
+    internal record MemberCodeRenderer(string Code)
+    {
+        internal bool Rendered { get; set; }
+
+        internal void Render(StringBuilder code)
+        {
+            if (Rendered) return;
+
+            Rendered = true;
+            code.Append(Code);
+        }
+    }

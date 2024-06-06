@@ -1,9 +1,7 @@
-﻿using Microsoft.CodeAnalysis;
-using SourceCrafter.Bindings.Constants;
+﻿using SourceCrafter.Bindings.Constants;
 using SourceCrafter.Bindings.Helpers;
+
 using System;
-using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Text;
 
 namespace SourceCrafter.Bindings;
@@ -12,14 +10,14 @@ internal sealed partial class MappingSet
 {
     private void CreateTypeMapBuilders
     (
-        TypeMappingInfo map,
+        TypeMapping map,
         ApplyOn ignore,
         string sourceMappingPath,
         string targetMappingPath,
-        Member source,
-        Member target,
-        Span<Member> sourceMembers,
-        Span<Member> targetMembers
+        MemberMetadata source,
+        MemberMetadata target,
+        Span<MemberMetadata> sourceMembers,
+        Span<MemberMetadata> targetMembers
     )
     {
         if (map is { IsCollection: not true, TargetType.IsInterface: true, SourceType.IsInterface: true })
@@ -36,8 +34,8 @@ internal sealed partial class MappingSet
             sttSpacing = map.TargetType.IsTupleType ? " " : "\r\n            ";
 
         MemberBuilder
-            ttsMembers = null!,
-            sttMembers = null!;
+            sourceMemberMappers = null!,
+            targetMemberMappers = null!;
 
         string?
             sttComma = null,
@@ -49,91 +47,109 @@ internal sealed partial class MappingSet
             toSameType = map.AreSameType,
             hasComplexTTSMembers = false,
             hasComplexSTTMembers = false,
-            isSTTRecursive = false,
-            isTTSRecursive = false,
+            isTargetRecursive = false,
+            isSourceRecursive = false,
             parentIgnoreTarget = ignore is ApplyOn.Target or ApplyOn.Both,
             parentIgnoreSource = ignore is ApplyOn.Source or ApplyOn.Both;
 
-        if (map.BuildToTargetValue is null)
-        {
-            map.BuildToTargetValue = map.HasToTargetScalarConversion || !source.Type.HasMembers
-                ? val => val
-                : val => map.ToTargetMethodName + "(" + val + (isSTTRecursive ? ", depth + 1" + (source.MaxDepth > 1 ? ", " + source.MaxDepth : null) : null) + ")";
-        }
+        map.BuildTargetValue ??= map.TargetHasScalarConversion || !source.Type.HasMembers
+            ? (code, val) => code.Append(val)
+            : (code, val) =>
+            {
+                code.Append(map.ToTargetMethodName).Append("(").Append(val);
 
-        map.BuildToTargetMethod = code =>
+                if (isTargetRecursive)
+                {
+                    code.Append(", depth + 1");
+
+                    if (source.MaxDepth > 1)
+                        code.Append(", ").Append(source.MaxDepth);
+                }
+
+                code.Append(")");
+            };
+
+        map.BuildTargetMethod = (StringBuilder code, ref RenderFlags isRendered) =>
         {
-            if (map.IsSTTRendered)
+            if (map.IsTargetRendered)
                 return;
 
             var maxDepth = target.MaxDepth;
 
-            if (isSTTRecursive && target.MaxDepth == 0)
+            if (isTargetRecursive && target.MaxDepth == 0)
                 maxDepth = target.MaxDepth = 1;
 
-            map.RenderedSTTDefaultMethod = true;
+            isRendered.defaultMethod = true;
 
             if(target.Type.HasPublicZeroArgsCtor)
-                CreateDefaultMethod(code, isSTTRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+                CreateDefaultMethod(code, isTargetRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
-                map.RenderedSTTFillMethod = true;
+                isRendered.fillMethod = true;
 
-                CreateFillMethod(code, isSTTRecursive, maxDepth, map.TargetType.IsValueType, map.FillTargetMethodName, targetExportFullTypeName, sourceExportFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+                CreateFillMethod(code, isTargetRecursive, maxDepth, map.TargetType.IsValueType, map.FillTargetMethodName, targetExportFullTypeName, sourceExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
 
                 foreach (var item in map.TargetType.UnsafePropertyFieldsGetters)
                     item.Render(code);
             }
 
-            if (map.AddSTTTryGet)
+            if (map.AddTargetTryGet)
             {
-                map.RenderedSTTTryGetMethod = true;
+                isRendered.tryGetMethod = true;
 
-                CreateTryGetMethod(code, isSTTRecursive, maxDepth, toSameType, map.TryGetTargetMethodName, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, sttMembers, hasComplexSTTMembers);
+                CreateTryGetMethod(code, isTargetRecursive, maxDepth, toSameType, map.TryGetTargetMethodName, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
             }
         };
 
-        if (map.BuildToSourceValue is null)
-        {
-            map.BuildToSourceValue = map.HasToTargetScalarConversion || !target.Type.HasMembers
-                ? val => val
-                : val => map.ToSourceMethodName + "(" + val + (isTTSRecursive ? ", depth + 1" + (target.MaxDepth > 1 ? ", " + target.MaxDepth : null) : null) + ")";
-        }
+        map.BuildSourceValue ??= map.TargetHasScalarConversion || !target.Type.HasMembers
+            ? (code, val) => code.Append(val)
+            : (code, val) =>
+            {
+                code.Append(map.ToSourceMethodName).Append("(").Append(val);
 
-        map.BuildToSourceMethod = code =>
+                if (isSourceRecursive)
+                {
+                    code.Append(", depth + 1");
+
+                    if (target.MaxDepth > 1)
+                        code.Append(", ").Append(target.MaxDepth);
+                }
+                code.Append(")");
+            };
+
+        map.BuildSourceMethod = (StringBuilder code, ref RenderFlags isRendered) =>
         {
-            if (map.IsTTSRendered)
+            if (map.IsSourceRendered)
                 return;
 
-            if (isTTSRecursive && source.MaxDepth == 0)
+            if (isSourceRecursive && source.MaxDepth == 0)
                 source.MaxDepth = 1;
 
-            map.RenderedTTSDefaultMethod = true;
+            isRendered.defaultMethod = true;
 
             if (source.Type.HasPublicZeroArgsCtor)
-                CreateDefaultMethod(code, isTTSRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+                CreateDefaultMethod(code, isSourceRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
-                map.RenderedTTSFillMethod = true;
+                isRendered.fillMethod = true;
 
-                CreateFillMethod(code, isTTSRecursive, source.MaxDepth, map.SourceType.IsValueType, map.FillSourceMethodName, sourceExportFullTypeName, targetExportFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+                CreateFillMethod(code, isSourceRecursive, source.MaxDepth, map.SourceType.IsValueType, map.FillSourceMethodName, sourceExportFullTypeName, targetExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
 
                 foreach (var item in map.SourceType.UnsafePropertyFieldsGetters)
                     item.Render(code);
             }
 
-            if (map.AddTTSTryGet)
+            if (map.AddSourceTryGet)
             {
-                map.RenderedTTSTryGetMethod = true;
+                isRendered.tryGetMethod = true;
 
-                CreateTryGetMethod(code, isTTSRecursive, source.MaxDepth, toSameType, map.TryGetSourceMethodName, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, ttsMembers, hasComplexTTSMembers);
+                CreateTryGetMethod(code, isSourceRecursive, source.MaxDepth, toSameType, map.TryGetSourceMethodName, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
             }
 
-            map.BuildToSourceMethod = null;
+            map.BuildSourceMethod = null;
         };
-
 
         var allowLowerCase = map.TargetType.IsTupleType || map.SourceType.IsTupleType;
 
@@ -156,27 +172,29 @@ internal sealed partial class MappingSet
 
                     if (!(parentIgnoreTarget || ignoreTarget || map.TargetType.IsInterface))
                     {
-                        map.STTMemberCount++;
+                        map.TargetMemberCount++;
 
                         if (targetMember.IsNullable)
-                            map.AddSTTTryGet = true;
+                            map.AddTargetTryGet = true;
 
-                        map.TargetType.IsRecursive = isSTTRecursive = true;
+                        map.TargetType.IsRecursive = isTargetRecursive = true;
 
                         hasComplexSTTMembers = true;
                         
-                        sttMembers += (code, isFill) =>
+                        targetMemberMappers += (code, isFill) =>
                         {
-                            code.Append(BuildTypeMember(
+                            BuildMemberMapping(
+                                code,
                                 isFill,
                                 ref sttComma,
                                 sttSpacing,
-                                map.BuildToTargetValue,
+                                map.BuildTargetValue,
                                 sourceMember,
                                 targetMember,
                                 map.ToTargetMethodName,
                                 map.FillTargetMethodName,
-                                sourceMember.Type.HasMembers && !map.HasToTargetScalarConversion));
+                                map.SourceRequiresMapper,
+                                map.SourceHasScalarConversion);
 
                             if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
@@ -185,26 +203,29 @@ internal sealed partial class MappingSet
 
                     if (!(toSameType && parentIgnoreSource || ignoreSource || map.SourceType.IsInterface))
                     {
-                        map.TTSMemberCount++;
+                        map.SourceMemberCount++;
 
-                        map.SourceType.IsRecursive = isTTSRecursive = true;
+                        map.SourceType.IsRecursive = isSourceRecursive = true;
+
                         hasComplexTTSMembers = true;
 
                         if (sourceMember.IsNullable)
-                            map.AddTTSTryGet = true;
+                            map.AddSourceTryGet = true;
                         
-                        ttsMembers += (code, isFill) =>
+                        sourceMemberMappers += (code, isFill) =>
                         {
-                            code.Append(BuildTypeMember(
+                            BuildMemberMapping(
+                                code,
                                 isFill,
                                 ref ttsComma,
                                 ttsSpacing,
-                                map.BuildToSourceValue,
+                                map.BuildSourceValue,
                                 targetMember,
                                 sourceMember,
                                 map.ToSourceMethodName,
                                 map.FillSourceMethodName,
-                                targetMember.Type.HasMembers && !map.HasToTargetScalarConversion));
+                                map.TargetRequiresMapper,
+                                map.TargetHasScalarConversion);
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
@@ -216,10 +237,8 @@ internal sealed partial class MappingSet
                     break;
                 }
 
-                var memberMap = GetOrAddMapper(targetMember.Type,sourceMember.Type);
-
-                memberMap = ParseTypesMap(
-                    memberMap,
+                var memberMap = ParseTypesMap(
+                    GetOrAddMapper(targetMember.Type, sourceMember.Type),
                     sourceMember,
                     targetMember,
                     ApplyOn.None,
@@ -239,30 +258,32 @@ internal sealed partial class MappingSet
 
                     if (!(parentIgnoreTarget || ignoreTarget || map.TargetType.IsInterface))
                     {
-                        map.STTMemberCount++;
+                        map.TargetMemberCount++;
 
                         if (sourceMember.IsNullable)
-                            memberMap.AddSTTTryGet = true;
+                            memberMap.AddTargetTryGet = true;
 
                         hasComplexSTTMembers = !memberMap.TargetType.IsPrimitive;
 
                         map.TargetType.IsRecursive |=
-                            isSTTRecursive |=
+                            isTargetRecursive |=
                             memberMap.TargetType.IsRecursive |=
                             memberMap.IsCollection is true && memberMap.TargetType.CollectionInfo.ItemDataType.Id == target.Type.Id;
 
-                        sttMembers += (code, isFill) =>
+                        targetMemberMappers += (code, isFill) =>
                         {
-                            code.Append(BuildTypeMember(
+                            BuildMemberMapping(
+                                code,
                                 isFill,
                                 ref sttComma,
                                 sttSpacing,
-                                memberMap.BuildToTargetValue,
+                                memberMap.BuildTargetValue,
                                 sourceMember,
                                 targetMember,
                                 memberMap.ToTargetMethodName,
                                 memberMap.FillTargetMethodName,
-                                sourceMember.Type.HasMembers && !memberMap.HasToTargetScalarConversion));
+                                memberMap.SourceRequiresMapper,
+                                memberMap.SourceHasScalarConversion);
 
                             if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
@@ -271,30 +292,32 @@ internal sealed partial class MappingSet
 
                     if (!(toSameType || parentIgnoreSource || ignoreSource || map.SourceType.IsInterface))
                     {
-                        map.TTSMemberCount++;
+                        map.SourceMemberCount++;
 
                         if (targetMember.IsNullable)
-                            memberMap.AddTTSTryGet = true;
+                            memberMap.AddSourceTryGet = true;
 
                         hasComplexTTSMembers = !memberMap.SourceType.IsPrimitive;
 
                         map.SourceType.IsRecursive |=
-                            isTTSRecursive |=
+                            isSourceRecursive |=
                             memberMap.SourceType.IsRecursive |=
                             memberMap.IsCollection is true && memberMap.SourceType.CollectionInfo.ItemDataType.Id == source.Type.Id;
 
-                        ttsMembers += (code, isFill) =>
+                        sourceMemberMappers += (code, isFill) =>
                         {
-                            code.Append(BuildTypeMember(
+                            BuildMemberMapping(
+                                code,
                                 isFill,
                                 ref ttsComma,
                                 ttsSpacing,
-                                memberMap.BuildToSourceValue,
+                                memberMap.BuildSourceValue,
                                 targetMember,
                                 sourceMember,
                                 memberMap.ToSourceMethodName,
                                 memberMap.FillSourceMethodName,
-                                targetMember.Type.HasMembers && !memberMap.HasToSourceScalarConversion));
+                                memberMap.TargetRequiresMapper,
+                                memberMap.TargetHasScalarConversion);
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
                                 map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
@@ -303,26 +326,33 @@ internal sealed partial class MappingSet
 
                     if (map.MappingsKind == MappingKind.All && memberMap.MappingsKind != MappingKind.All
                         && (sourceMember.IsInit || targetMember.IsInit))
+                    {
                         memberMap.MappingsKind = MappingKind.All;
+                    }
 
                     if (true == (map.CanMap |= map.HasTargetToSourceMap || map.HasSourceToTargetMap)
                         && (!memberMap.TargetType.IsPrimitive || memberMap.TargetType.IsTupleType
                         || !memberMap.SourceType.IsPrimitive || memberMap.SourceType.IsTupleType))
+                    {
                         map.AuxiliarMappings += memberMap.BuildMethods;
+                    }
 
                     break;
                 }
             }
         }
 
+        map.TargetRequiresMapper = map.TargetMemberCount > 0;
+        map.SourceRequiresMapper = map.SourceMemberCount > 0;
+
         if (!map.HasSourceToTargetMap)
         {
-            map.AddSTTTryGet = false;
+            map.AddTargetTryGet = false;
         }
 
         if (!map.HasTargetToSourceMap)
         {
-            map.AddTTSTryGet = false;
+            map.AddSourceTryGet = false;
         }
 
         void CreateDefaultMethod(
@@ -340,29 +370,55 @@ internal sealed partial class MappingSet
             bool hasComplexMembers)
         {
             if (members is null) return;
-            code.Append($@"
+            
+            string 
+                targetExportFullXmlDocTypeName = targetExportFullTypeName.Replace("<", "{").Replace(">", "}"),
+                sourceExportFullXmlDocTypeName = sourceExportFullTypeName.Replace("<", "{").Replace(">", "}");
+
+
+            code.Append(@"
     /// <summary>
-    /// Creates a new instance of <see cref=""{targetExportFullTypeName}""/> based from a given instance of <see cref=""{sourceExportFullTypeName}""/>
+    /// Creates a new instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based on the given instance of <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@"""/>
     /// </summary>
-    /// <param name=""source"">Data source to be mappped</param>{(isRecursive ? $@"
+    /// <param name=""source"">Data source to be mappped</param>");
+    
+            if (isRecursive)
+            {
+                code.Append(@"
     /// <param name=""depth"">Depth index for recursivity control</param>
-    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : @"
-    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]")}
-    public static {targetFullTypeName} {methodName}(this {sourceFullTypeName} source{(
-                isRecursive
-                    ? $@", int depth = 0, int maxDepth = {maxDepth})
-    {{
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
+            }
+            else
+            {
+                code.Append(@"
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+            }
+
+            code.Append(@"
+    public static ").Append(targetFullTypeName).AddSpace().Append(methodName).Append("(this ").Append(sourceFullTypeName).Append(" source");
+
+            if (isRecursive)
+            {
+                code.Append(@", int depth = 0, int maxDepth = ").Append(maxDepth).Append(@")
+    {
         if (depth >= maxDepth) 
-            return default{defaultSourceBang};
-"
-                    : $@")
-    {{")}
-        return {typeStart}");
+            return default").Append(defaultSourceBang).Append(@";
+");
+            }
+            else
+            {
+                code.Append(@")
+    {");
+            }
+            
+            code.Append(@"
+        return ").Append(typeStart);
+
 
             members(code, false);
 
-            code.Append($@"{typeEnd};
-    }}
+            code.Append(typeEnd).Append(@";
+    }
 ");
         }
 
@@ -382,29 +438,61 @@ internal sealed partial class MappingSet
         )
         {
             if (members is null) return;
-            code.Append($@"
+
+            string
+                targetExportFullXmlDocTypeName = targetExportFullTypeName.Replace("<", "{").Replace(">", "}"),
+                sourceExportFullXmlDocTypeName = sourceExportFullTypeName.Replace("<", "{").Replace(">", "}");
+
+            code.Append(@"
     /// <summary>
-    /// Tries to create a new instance of <see cref=""{targetFullTypeName}""/> based from a given instance of <see cref=""{sourceFullTypeName}""/> if it's not null
+    /// Tries to create a new instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based on a given instance of <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@"""/> if it's not null
     /// </summary>
-    /// <param name=""source"">Data source</param>{(isRecursive ? $@"
+    /// <param name=""source"">Data source</param>");
+
+            if (isRecursive)
+            {
+                code.Append(@"
     /// <param name=""depth"">Depth index for recursivity control</param>
-    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : @"
-    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]")}
-    public static bool {methodName}(this {sourceFullTypeName} source, out {targetFullTypeName} target{(
-                isRecursive
-                    ? $@", int depth = 0, int maxDepth = {maxDepth})
-    {{"
-                    : $@")
-    {{")}
-        if (source is {{}} _source)
-        {{
-            target = {toMethodName}(_source{(isRecursive ? ", depth, maxDepth" : null)});
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
+            }
+            else
+            {
+                code.Append(@"
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+            }
+
+            code.Append(@"
+    public static bool ").Append(methodName).Append("(this ").Append(sourceFullTypeName).Append(" source, out ").Append(targetFullTypeName).Append(" target");
+
+            if (isRecursive)
+            {
+                code.Append(", int depth = 0, int maxDepth = ").Append(maxDepth).Append(@")
+    {");
+            }
+            else
+            {
+                code.Append(@")
+    {");
+            }
+
+            code.Append(@"
+        if (source is { } _source)
+        {
+            target = ").Append(toMethodName).Append("(_source");
+
+            if (isRecursive)
+            {
+                code.Append(", depth, maxDepth");
+            }
+
+            code.Append(@");
             return true;
-        }}
-        target = default{defaultSourceBang};
+        }
+        target = default").Append(defaultSourceBang).Append(@";
         return false;
-    }}
+    }
 ");
+
         }
 
         void CreateFillMethod
@@ -422,31 +510,53 @@ internal sealed partial class MappingSet
         )
         {
             if (members is null) return;
+
             string? _ref = (isValueType ? "ref " : null);
-            code.Append($@"
+
+            string
+                targetExportFullXmlDocTypeName = targetExportFullTypeName.Replace("<", "{").Replace(">", "}"),
+                sourceExportFullXmlDocTypeName = sourceExportFullTypeName.Replace("<", "{").Replace(">", "}");
+
+            code.Append(@"
     /// <summary>
-    /// Update an instance of <see cref=""{targetFullTypeName}""/> based from a given instance of <see cref=""{sourceFullTypeName}""/> 
+    /// Update an instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based on a given instance of <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@""" />
     /// </summary>
-    /// <param name=""source"">Data source to be mappped</param>{(isRecursive ? $@"
+    /// <param name=""source"">Data source to be mappped</param>");
+
+            if (isRecursive)
+            {
+                code.Append(@"
     /// <param name=""depth"">Depth index for recursivity control</param>
-    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>" : @"
-    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]")}
-    public static {_ref}{targetFullTypeName} {fillMethodName}({_ref}this {targetFullTypeName} target, {sourceFullTypeName} source{(
-                isRecursive
-                    ? $@", int depth = 0, int maxDepth = {maxDepth})
-    {{
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
+            }
+            else
+            {
+                code.Append(@"
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
+            }
+
+            code.Append(@"
+    public static ").Append(_ref).Append(targetFullTypeName).AddSpace().Append(fillMethodName).Append("(").Append(_ref).Append("this ").Append(targetFullTypeName).Append(" target, ").Append(sourceFullTypeName).Append(" source");
+
+            if (isRecursive)
+            {
+                code.Append(", int depth = 0, int maxDepth = ").Append(maxDepth).Append(@")
+    {
         if (depth >= maxDepth) 
-            return {_ref}target{sourceBang};
-"
-                    : $@")
-    {{")}");
+            return ").Append(_ref).Append("target").Append(sourceBang).Append(";");
+            }
+            else
+            {
+                code.Append(@")
+    {");
+            }
 
             members(code, true);
 
-            code.Append($@"
+            code.Append(@"
 
-        return {_ref}target;
-    }}
+        return ").Append(_ref).Append(@"target;
+    }
 ");
         }
     }
