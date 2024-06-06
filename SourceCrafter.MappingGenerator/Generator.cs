@@ -7,9 +7,6 @@ using SourceCrafter.Bindings.Constants;
 using System.Linq;
 using System.Text;
 using System.Diagnostics;
-using System.Collections.Generic;
-using SourceCrafter.Bindings.Helpers;
-using Microsoft.CodeAnalysis.CSharp;
 
 [assembly: InternalsVisibleTo("SourceCrafter.Bindings.UnitTests")]
 namespace SourceCrafter.Bindings;

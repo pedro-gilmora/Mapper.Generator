@@ -1,6 +1,4 @@
-﻿using System.IO.MemoryMappedFiles;
-
-namespace SourceCrafter.Bindings;
+﻿namespace SourceCrafter.Bindings;
 
 internal sealed class Indent(char space = ' ', int count = 4)
 {

@@ -5,7 +5,6 @@ using System.Runtime.CompilerServices;
 using System.Text;
 
 using Microsoft.CodeAnalysis;
-using SourceCrafter.Bindings.Helpers;
 
 
 [assembly: InternalsVisibleTo("SourceCrafter.Bindings.UnitTests")]

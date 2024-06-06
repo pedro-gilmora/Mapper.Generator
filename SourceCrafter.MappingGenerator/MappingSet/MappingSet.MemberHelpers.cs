@@ -64,9 +64,9 @@ internal sealed partial class MappingSet
     extern static ref {targetType}{(target.IsNullable ? "?" : null)} {getPrivFieldMethodName}({target.OwningType.NotNullFullName} _);
 "));
 
-                if (target.IsNullable)
+                if (source.IsNullable)
                 {
-                    if (source.IsNullable)
+                    if (target.IsNullable)
                     {
                         code.Append(@"
         if (source.").Append(source.Name).Append(@" != null)
@@ -89,7 +89,7 @@ internal sealed partial class MappingSet
                         {
                             code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ").Append(BuildSourceParam());
                         }
-                        
+
                         code.Append(@";
             else
                 ").Append(targetValue).Append(" = ").Append(BuildSourceParam()).Append(@";
@@ -99,7 +99,7 @@ internal sealed partial class MappingSet
                     else
                     {
                         code.Append(@"
-        if(target.").Append(targetMemberName).Append(@" is not null) 
+        if (source.").Append(source.Name).Append(@" is not null)
             ");
                         string targetValue;
 
@@ -112,7 +112,7 @@ internal sealed partial class MappingSet
                                 code.Append("ref ");
                             }
 
-                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append("!, ").Append(BuildSourceParam(fill: true)).Append(")");
+                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(", ").Append(BuildSourceParam(fill: true)).Append(")");
                         }
                         else
                         {
@@ -121,35 +121,8 @@ internal sealed partial class MappingSet
 
                         code.Append(@";
         else
-            ").Append(targetValue).Append(" = ").Append(BuildSourceParam()).Append(';');
-                    }
-                }
-                else if (source.IsNullable)
-                {
-                    code.Append(@"
-        if (source.").Append(source.Name).Append(@" is not null)
-            ");
-                    string targetValue;
-
-                    if (useFillMethod)
-                    {
-                        code.Append(fillTargetMethodName).Append("(");
-
-                        if (isValueType)
-                        {
-                            code.Append("ref ");
-                        }
-
-                        code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(", ").Append(BuildSourceParam(fill: true)).Append(")");
-                    }
-                    else
-                    {
-                        code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ").Append(BuildSourceParam());
-                    }
-
-                    code.Append(@";
-        else
             ").Append(targetValue).Append(" = default").Append(source.DefaultBang).Append(';');
+                    }
                 }
                 else
                 {
@@ -170,7 +143,9 @@ internal sealed partial class MappingSet
                     }
                     else
                     {
-                        code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ").Append(BuildSourceParam());
+                        code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ");
+                        
+                        BuildValue();
                     }
 
                     code.Append(@";");
@@ -195,7 +170,7 @@ internal sealed partial class MappingSet
                     }
                 }
             }
-            else
+            else if(target is { IsProperty: true } and { IsInit: false, IsReadOnly: false})
             {
                 code.Append(@"
         target.").Append(targetMemberName).Append(" = ");

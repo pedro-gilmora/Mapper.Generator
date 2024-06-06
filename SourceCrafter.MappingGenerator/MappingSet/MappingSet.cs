@@ -1,12 +1,9 @@
-﻿using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using SourceCrafter.Bindings.Constants;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using SourceCrafter.Bindings.Helpers;

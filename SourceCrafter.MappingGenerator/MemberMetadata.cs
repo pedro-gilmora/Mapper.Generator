@@ -1,5 +1,5 @@
 ﻿using Microsoft.CodeAnalysis;
-using System;
+
 using System.Collections.Immutable;
 
 namespace SourceCrafter.Bindings;

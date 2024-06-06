@@ -1,19 +1,14 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
+
 using SourceCrafter.Bindings.Constants;
 using SourceCrafter.Bindings.Helpers;
-using SourceCrafter.Bindings;
+
 using System;
-using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using System.ComponentModel;
 using System.Linq;
 using System.Text;
-using System.Threading;
-using System.Reflection;
-using System.Data;
 
 namespace SourceCrafter.Bindings;
 

@@ -39,6 +39,7 @@ namespace SourceCrafter.Bindings.UnitTests
     [Reactive]
     public interface IAppUser
     {
+        int Id { get; }
         string UserName { get; set; }
         [Bind(nameof(MeAsUser.Name))]
         string FirstName { get; set; }
@@ -93,6 +94,7 @@ namespace SourceCrafter.Bindings.UnitTests
 
     public class UserBase
     {
+        public readonly int? Id;
         /* uuid */
 #pragma warning disable CS8632 // The annotation for nullable reference types should only be used in code within a '#nullable' annotations context.
         public string? Uuid { get; set; }
