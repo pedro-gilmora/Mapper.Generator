@@ -23,6 +23,9 @@ namespace SourceCrafter.Bindings.Attributes
     [AttributeUsage(AttributeTargets.Enum, AllowMultiple = true)]
     public sealed class ExtendAttribute(string ignore = "") : Attribute;
 
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class ExtendAttribute<T>(string ignore = "") : Attribute where T : Enum;
+
     public interface IImplement<IInterface, IImplementation>
         where IImplementation : class, IInterface; 
     

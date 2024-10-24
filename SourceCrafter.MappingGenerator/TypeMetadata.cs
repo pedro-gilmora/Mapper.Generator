@@ -430,10 +430,10 @@ internal sealed class TypeMetadata
         }
 
         code.AppendFormat(@"
-    private static object? __lock = new();
+    
     private static {0}[]? _cached{1}Values;
     
-    public static {0}[]? GetValues<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}>
+    public static {0}[]? GetValues(this {0} _)
     {{
         if(_cached{1}Values is not null) return _cached{1}Values;
 
@@ -446,7 +446,7 @@ internal sealed class TypeMetadata
         _cached{1}Descriptions,
         _cached{1}Names;
 
-    public static string[] GetDescriptions<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}> 
+    public static string[] GetDescriptions(this {0} _)
     {{
         if(_cached{1}Descriptions is not null) return _cached{1}Descriptions;
 
@@ -455,7 +455,7 @@ internal sealed class TypeMetadata
         }};
     }}
 
-    public static string[] GetNames<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}>
+    public static string[] GetNames(this {0} _)
     {{
         if(_cached{1}Names is not null) return _cached{1}Names;
 
@@ -482,7 +482,7 @@ internal sealed class TypeMetadata
         }}
     }}
 
-    public static bool IsDefined<T>(this string value) where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}>
+    public static bool IsDefined(this {0} _, string value)
     {{
 		switch(value)
         {{
@@ -493,7 +493,7 @@ internal sealed class TypeMetadata
         }}
     }}
 
-    public static bool IsDefined<T>(this int value) where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}>
+    public static bool IsDefined(this {0} _, int value)
     {{
         switch(value)
         {{

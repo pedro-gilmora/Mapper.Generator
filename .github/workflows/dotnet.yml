@@ -39,33 +39,42 @@ jobs:
     - name: Notify Release to Github & Telegram
       if: always()
       shell: pwsh      
-      run: |
+      run: |  
+        function escape {
+          param (
+            [string]$text
+          )
+
+          return $text -replace '([_\*\[\]\(\)~`>#\+\-=|{}\.!])', '\$1'
+        }
+
+        $id = '${{ github.sha }}'.Substring(0,8)
+
         $status, $icon, $message = if ('${{ job.status }}' -eq 'failure') { 
           'failed', '💥', "Errors: ${{ steps.build.outputs.errors }}
             ${{ steps.build.publish.errors }}".Trim()
         } elseif ('${{ job.status }}' -eq 'success') { 
-          'successfully completed', '✅', '${{ github.event.head_commit.message }}' 
+          'successfully completed', '✅', $(escape "${{ github.event.head_commit.message }}
+        $([string]::Join(" 
+        ", $(${{ github.event.commits }} | Select -Skip 1 | ForEach-Object { "● $_.message" })))") 
         } else { 
           'cancelled', '⛔', 'User aborted the action' 
         }
-         
-        $id = '${{ github.sha }}'.Substring(0,8)
-        
+
         $message = @"
-        🚀$icon *${{ github.workflow }}* #${{ github.run_number }} Build $status
-        👤 *Triggered by:* ${{ github.actor }}
-        🌿 *Branch:* ${{ github.ref }}
+        🚀$icon *$(escape '${{ github.workflow }}')* #${{ github.run_number }} Build $status
+        👤 *Triggered by:* $(escape '${{ github.actor }}')
+        🌿 *Branch:* $(escape '${{ github.ref }}')
         🔗 *Change:* [``$id``] 
-        $message
-        "@
+        $(escape '$message')"
 
         $uri = "https://api.telegram.org/bot${{ secrets.TGBOT_TOKEN }}/sendMessage"
 
         $body = @{
-            chat_id = ${{ secrets.SC_CHATID }}
-            text    = $message
-            parse_mode = 'HTML'
-            message_thread_id = 4
+          chat_id = ${{ secrets.SC_CHATID }}
+          text    = $message
+          parse_mode = 'MarkdownV2'
+          message_thread_id = 4
         }
 
         Invoke-RestMethod -Uri $uri -Method Post -Body $body

@@ -12,7 +12,9 @@ internal sealed class TypeSet(Compilation compilation)
 {
     static readonly EqualityComparer<int> _intComparer = EqualityComparer<int>.Default;
 
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
     record struct TypeEntry(int Id) { internal TypeMetadata type; internal int next = 0; }
+#pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
 
     internal TypeMetadata GetOrAdd(ITypeSymbol typeSymbol, bool dictionaryOwned = false)
     {
