@@ -430,30 +430,46 @@ internal sealed class TypeMetadata
         }
 
         code.AppendFormat(@"
-    private static global::System.Collections.Immutable.ImmutableArray<{0}>? _cached{1}Values;
+    private static object? __lock = new();
+    private static {0}[]? _cached{1}Values;
     
-    public static global::System.Collections.Immutable.ImmutableArray<{0}>? Get{1}Values() 
-        => _cached{1}Values ??= global::System.Collections.Immutable.ImmutableArray.Create(
-            {2});
+    public static {0}[]? GetValues<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}>
+    {{
+        if(_cached{1}Values is not null) return _cached{1}Values;
+
+        lock(__lock) return _cached{1}Values ??= new {0} [] {{
+            {2}
+        }};
+    }}
     
-    private static global::System.Collections.Immutable.ImmutableArray<string>?
+    private static string[]?
         _cached{1}Descriptions,
         _cached{1}Names;
 
-    public static global::System.Collections.Immutable.ImmutableArray<string> GetDescriptions<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}> 
-        => _cached{1}Descriptions ??= global::System.Collections.Immutable.ImmutableArray.Create(
-            {3});
+    public static string[] GetDescriptions<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}> 
+    {{
+        if(_cached{1}Descriptions is not null) return _cached{1}Descriptions;
 
-    public static global::System.Collections.Immutable.ImmutableArray<string> GetNames<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}>
-        => _cached{1}Names ??= global::System.Collections.Immutable.ImmutableArray.Create(
-            {4});
+        lock(__lock) return _cached{1}Descriptions ??= new string [] {{
+            {3}
+        }};
+    }}
+
+    public static string[] GetNames<T>() where T : global::SourceCrafter.Bindings.Helpers.IEnum<{0}>
+    {{
+        if(_cached{1}Names is not null) return _cached{1}Names;
+
+        lock(__lock) return _cached{1}Names ??= new string [] {{
+            {4}
+        }};
+    }}
 
     public static string? GetName(this {0} value, bool throwOnNotFound = false) 
 	{{
 		switch(value)
         {{
             {5}
-            default: return throwOnNotFound ? value.ToString() : throw new Exception(""The value is not a valid identifier for type [{0}]""); 
+            default: return throwOnNotFound ? value.ToString() : throw new global::System.Exception(""The value is not a valid identifier for type [{0}]""); 
         }}
     }}
 
@@ -462,7 +478,7 @@ internal sealed class TypeMetadata
 		switch(value)
         {{
             {6}
-            default: return throwOnNotFound ? value.ToString() : throw new Exception(""The value has no description""); 
+            default: return throwOnNotFound ? value.ToString() : throw new global::System.Exception(""The value has no description""); 
         }}
     }}
 

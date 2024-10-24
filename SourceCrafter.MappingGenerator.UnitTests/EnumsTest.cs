@@ -24,6 +24,8 @@ public class EnumsTest
     [Fact]
     public void TestEnums()
     {
+        GetValues<IEnum<Status>>().Should().BeEquivalentTo([Status.NotStarted, Status.Stopped, Status.Started, Status.Cancelled, Status.Failed]);
+
         GetDescriptions<IEnum<Status>>().Should().BeEquivalentTo([NotStartedDesc, StoppedDesc, StartedDesc, CancelledDesc, Failure]);
 
         GetNames<IEnum<Status>>().Should().BeEquivalentTo(["NotStarted","Stopped","Started","Cancelled","Failed"]);

@@ -1,4 +1,4 @@
-name: 'SourceCrafter.MappingGenerator: Build, Test & Deploy'
+﻿name: 'SourceCrafter.MappingGenerator: Build, Test & Deploy'
 
 on:
   push:
@@ -35,3 +35,37 @@ jobs:
       run: |
         package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"
         dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+
+    - name: Notify Release to Github & Telegram
+      if: always()
+      shell: pwsh      
+      run: |
+        $status, $icon, $message = if ('${{ job.status }}' -eq 'failure') { 
+          'failed', '💥', "Errors: ${{ steps.build.outputs.errors }}
+            ${{ steps.build.publish.errors }}".Trim()
+        } elseif ('${{ job.status }}' -eq 'success') { 
+          'successfully completed', '✅', '${{ github.event.head_commit.message }}' 
+        } else { 
+          'cancelled', '⛔', 'User aborted the action' 
+        }
+         
+        $id = '${{ github.sha }}'.Substring(0,8)
+        
+        $message = @"
+        🚀$icon *${{ github.workflow }}* #${{ github.run_number }} Build $status
+        👤 *Triggered by:* ${{ github.actor }}
+        🌿 *Branch:* ${{ github.ref }}
+        🔗 *Change:* [``$id``] 
+        $message
+        "@
+
+        $uri = "https://api.telegram.org/bot${{ secrets.TGBOT_TOKEN }}/sendMessage"
+
+        $body = @{
+            chat_id = ${{ secrets.SC_CHATID }}
+            text    = $message
+            parse_mode = 'HTML'
+            message_thread_id = 4
+        }
+
+        Invoke-RestMethod -Uri $uri -Method Post -Body $body
