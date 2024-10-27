@@ -12,5 +12,5 @@ jobs:
 
       - name: Run PowerShell Command
         run: |
-          Write-Host '${{ toJson(github.event) }}'
+          Write-Host '${{ toJson(github) }}'
         shell: pwsh
