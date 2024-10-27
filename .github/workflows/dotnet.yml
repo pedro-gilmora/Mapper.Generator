@@ -10,11 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
 
-      - name: Get Commit Data
-        id: commits_data
-        run: echo "::set-output name=commits::'${{ toJson(github.event.commits) }}'"
-        
       - name: Run PowerShell Command
         run: |
-          Write-Host '${{ steps.commits_data.outputs.commits }}' | ConvertFrom-Json
+          Write-Host '${{ toJson(github.event.commits) }}'
         shell: pwsh
