@@ -11,6 +11,6 @@ jobs:
     steps:
       - name: Run PowerShell Command
         run: |
-          $commits = '${{ github.event.commits }}' | ConvertFrom-Json
+          $commits = '${{ github.event.commits }}' | ConvertTo-Json
           Write-Host $commits
         shell: pwsh
