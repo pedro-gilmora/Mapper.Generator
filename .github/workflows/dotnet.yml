@@ -12,7 +12,7 @@ jobs:
 
       - name: Get Commit Data
         id: commits_data
-        run: echo "::set-output name=commits::${{ toJson(github.event.commits) }}"
+        run: echo "::set-output name=commits::'${{ toJson(github.event.commits) }}'"
         
       - name: Run PowerShell Command
         run: |
