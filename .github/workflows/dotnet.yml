@@ -22,22 +22,79 @@ jobs:
       run: dotnet restore
 
     - name: Test
-      run: dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release
+      run: |
+        dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release
 
     - name: Pack
       if: github.ref_name == 'dev'
       run: |
-        without_comma=$(echo "${{ github.event.head_commit.message }}" | sed 's/,/\\u002C/g')
-        dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageReleaseNotes="$without_comma"
+        # Combine all parts into a version string
+        version=""$(( $(date --date='now' +%Y) - $(date -d @${{ github.event.repository.created_at }} +%Y) )).$(date +%y).$(date +%j).$(( $(date +%H%M) / 5 ))""
+        echo "VERSION=${version}" >> $GITHUB_ENV
+
+        dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version"
     
     - name: Publish to Nuget
       if: github.ref_name == 'dev'
       run: |
         package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"
         dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-
+        
     - name: Notify Release to Github & Telegram
-      if: always()
-      shell: pwsh      
-      run: |  
-        Write-Host '${{ github.event.commits }}'
+      if: always()  
+      shell: pwsh
+      env:        
+         GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      run: |
+        function escape {
+          param (
+              [string]$text
+          )
+          return $text -replace '([_\*\[\]\(\)~`>#\+\-=|{}\.!])', '\$1'
+        }
+
+        $commits = '${{ toJson(github.event.commits) }}' | ConvertFrom-Json
+
+        $status, $icon, $message = if ('${{ job.status }}' -eq 'failure') { 
+          'failed', '💥', "Errors: ${{ steps.build.outputs.errors }}
+            ${{ steps.build.publish.errors }}".Trim()
+        } elseif ('${{ job.status }}' -eq 'success') { 
+          'successfully completed', '✅', '${{ github.event.head_commit.message }}' 
+        } else { 
+          'cancelled', '⛔', 'User aborted the action' 
+        }
+        
+        $message = @"
+        🚀 *$(escape '${{ github.workflow }}')* \#1 Build $status ✅
+        👤 *Triggered by:* $(escape 'pedro-gilmora')
+        🌿 *Branch:* ${{ github.ref_name }}
+        🔗 *Change:* *[ $( "${{ github.event.head_commit.id }}".Substring(0,8) ) ]( $(escape "https://github.com/${{ github.event.head_commit.author.username }}") )*
+
+        *$(escape $message)*
+
+        $(if($commits.Length -gt 1) { 
+        [string]::Join(" 
+        ", $( $commits | Select -Skip 1 | ForEach-Object { "[$($_.id.Substring(0,8))]($(escape $_.url)): $(escape $_.message)
+          by [$(escape $_.author.username)]( $(escape https://github.com/$($_.author.username)) )" }))
+        })
+        "@.Trim()
+
+        Write-Host $message
+
+        $uri = "https://api.telegram.org/bot${{ secrets.TGBOT_TOKEN }}/sendMessage"
+
+        $body = @{
+            chat_id = ${{ secrets.SC_CHATID }}
+            text    = $message
+            parse_mode = 'MarkdownV2'
+            message_thread_id = 4
+        }
+
+        Invoke-RestMethod -Uri $uri -Method Post -Body $body
+        
+        gh release create v$VERSION --latest --title "${{ github.event.head_commit.message }}" --notes $(if($commits.Length -gt 1) { 
+        "| Commit    | Message              | Author         |
+         |-----------|----------------------|----------------|" +
+        [string]::Join(" 
+        ", $( $commits | Select-Object -Skip 1 | ForEach-Object { "| [$($_.id.Substring(0,8))]($(escape $_.url)) | $_.message | [$($_.author.username)](https://github.com/$($_.author.username))" }))} 
+        else { "" }).Trim()
