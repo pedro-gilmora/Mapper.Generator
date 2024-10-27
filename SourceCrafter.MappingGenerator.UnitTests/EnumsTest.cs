@@ -9,11 +9,10 @@ using Xunit;
 using FluentAssertions;
 using System.ComponentModel;
 using static SourceCrafter.EnumExtensions.EnumExtensions;
-using SourceCrafter.Bindings.Helpers;
-using Newtonsoft.Json.Linq;
 using FluentAssertions.Common;
+using SourceCrafter.Bindings.Constants;
 
-[assembly: Extend<SourceCrafter.Bindings.UnitTests.Status>]
+[assembly: Extend<MappingKind>]
 
 namespace SourceCrafter.Bindings.UnitTests;
 
@@ -66,58 +65,42 @@ public class EnumsTest
     [Fact]
     public void TestAssemblyEnums()
     {
-        Status2Enum.GetValues().Should().BeEquivalentTo([Status2.NotStarted, Status2.Stopped, Status2.Started, Status2.Cancelled, Status2.Failed]);
+        MappingKindEnum.GetDescriptions().Should().BeEquivalentTo(["All", "Normal", "Fill"]);
 
-        Status2Enum.GetDescriptions().Should().BeEquivalentTo([NotStartedDesc, StoppedDesc, StartedDesc, CancelledDesc, Failure]);
+        MappingKindEnum.GetNames().Should().BeEquivalentTo(["All", "Normal", "Fill"]);
 
-        Status2Enum.GetNames().Should().BeEquivalentTo(["NotStarted","Stopped","Started","Cancelled","Failed"]);
+        MappingKind.Fill.GetName().Should().Be("Fill");
 
-        Status2.Started.GetName().Should().Be("Started");
+        "Fill".TryGetValue(out MappingKind kind).Should().BeTrue();
 
-        "Cancelled".TryGetValue(out Status2 status).Should().BeTrue();
+        MappingKind.Fill.Should().Be(kind);
 
-        Status2.Cancelled.Should().Be(status);
+        "Unknown".TryGetValue(out MappingKind _).Should().BeFalse();
 
-        "Unknown".TryGetValue(out Status2 _).Should().BeFalse();
+        MappingKindEnum.IsDefined(1).Should().BeTrue();
 
-        Status2Enum.IsDefined(1).Should().BeTrue();
+        MappingKindEnum.IsDefined("Fill").Should().BeTrue();
 
-        Status2Enum.IsDefined("Failed").Should().BeTrue();
+        MappingKindEnum.IsDefined(5).Should().BeFalse();
 
-        Status2Enum.IsDefined(5).Should().BeFalse();
+        MappingKindEnum.IsDefined("Uknown").Should().BeFalse();
 
-        Status2Enum.IsDefined("Uknown").Should().BeFalse();
+        MappingKind.Fill.TryGetName(out var name).Should().BeTrue();
 
-        Status2.Started.TryGetName(out var name).Should().BeTrue();
-            
-        name.Should().Be("Started");
+        name.Should().Be("Fill");
 
-        ((Status2)6).TryGetName(out _).Should().BeFalse();
+        ((MappingKind)6).TryGetName(out _).Should().BeFalse();
 
-        Status2.Cancelled.TryGetDescription(out var desc).Should().BeTrue();
+        MappingKind.Fill.TryGetDescription(out var desc).Should().BeTrue();
 
-        desc.Should().Be(CancelledDesc);
+        desc.Should().Be("Fill");
 
-        ((Status2)6).TryGetDescription(out _).Should().BeFalse();
+        ((MappingKind)6).TryGetDescription(out _).Should().BeFalse();
     }
 }
 
 [Extend]
 public enum Status
-{
-    NotStarted,
-    [Description("Transaction was stopped")]
-    Stopped,
-    [Description("Transaction has been started")]
-    Started,
-    [Description("Transaction has been cancelled by user")]
-    Cancelled,
-    [Description("Transaction had an external failure")]
-    Failed
-}
-
-[Extend]
-public enum Status2
 {
     NotStarted,
     [Description("Transaction was stopped")]
