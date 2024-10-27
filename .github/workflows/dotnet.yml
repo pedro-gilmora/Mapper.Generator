@@ -53,7 +53,16 @@ jobs:
           return $text -replace '([_\*\[\]\(\)~`>#\+\-=|{}\.!])', '\$1'
         }
 
-        $headCommit = $( "${{ github.event.head_commit.message }}" -replace '^\[Release\]\s*', '' )
+        release-Trimming{
+          param (
+              [string]$text
+          )
+          return $( $text -replace '^\[Release\]\s*', '' )
+        }
+
+        $isRelease = "${{ github.event.head_commit.message }}" -match '^\[Release\]\s*'
+
+        $headCommit = $( release-Trimming "${{ github.event.head_commit.message }}" )
 
         $commits = '${{ toJson(github.event.commits) }}' | ConvertFrom-Json
 
@@ -94,13 +103,15 @@ jobs:
 
         Invoke-RestMethod -Uri $uri -Method Post -Body $body
 
-        if( "${{ github.event.head_commit.message }}" -match '^\[Release\]\s*' )
+        if( $isRelease )
         {
-            gh release create "v${{ env.VERSION }}" --latest --title "$headCommit" --notes $(if($commits.Length -gt 1) { 
+            $message = $(if($commits.Length -gt 1) { 
         "| Commit    | Message              | Author         |
          |-----------|----------------------|----------------|
         " +
         [string]::Join("
-        ", $( $commits | Select-Object -Skip 1 | ForEach-Object { "| [$($_.id.Substring(0,8))]($_.url)) | $( $_.message ) | [$($_.author.username)](https://github.com/$($_.author.username))" }))} 
+        ", $( $commits | Select-Object -Skip 1 | ForEach-Object { "| [$($_.id.Substring(0,8))]($_.url)) | $( release-Trimming $_.message ) | [$($_.author.username)](https://github.com/$($_.author.username))" }))} 
         else { "" }).Trim()
+
+            gh release create "v${{ env.VERSION }}" --latest --title "$headCommit" --notes "$message"
         }
