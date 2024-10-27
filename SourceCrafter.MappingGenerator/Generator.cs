@@ -24,7 +24,7 @@ public class Generator : IIncrementalGenerator
 #endif
             var d = FindMapperAttributes(context,
                 "SourceCrafter.Bindings.Attributes.ExtendAttribute`1",
-                static n => n is EnumDeclarationSyntax,
+                static n => true,
                 static (targetSymbol, model, attr) => attr.AttributeClass?.TypeArguments[0]!)
                 .Combine(
                     FindMapperAttributes(context,
