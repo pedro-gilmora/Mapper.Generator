@@ -3,7 +3,7 @@
 	<PropertyGroup>
 		<TargetFramework>netstandard2.0</TargetFramework>
 		<LangVersion>preview</LangVersion>	
-		<PackageVersion>
+		<!--<PackageVersion>
 			$([System.Convert]::ToUInt16(
 				$([MSBuild]::Add(
 					$([System.DateTime]::Now.Year),
@@ -18,7 +18,7 @@
 					15
 				))
 			))
-		</PackageVersion>
+		</PackageVersion>-->
 		<Company>AsereHighDev</Company>
 		<Description>Generator for class mappings</Description>
 		<PackageReadmeFile>ReadMe.md</PackageReadmeFile>
