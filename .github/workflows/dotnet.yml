@@ -1,43 +1,16 @@
-﻿name: 'SourceCrafter.MappingGenerator: Build, Test & Deploy'
+name: Run PowerShell Command
 
 on:
   push:
-    branches: [ "**" ]
+    branches:
+      - dev  # Specify the branch to trigger the pipeline
 
 jobs:
-  try-deliver:
-    name: '.NET 7 Build, Test & Deploy'
-    runs-on: 'ubuntu-latest'
-
-    steps:      
-    - name: Get source code
-      uses: actions/checkout@v3
-
-    - name: Setup .NET
-      uses: actions/setup-dotnet@v3
-      with:
-        dotnet-version: 7.0.x
-
-    - name: Restore dependencies
-      run: dotnet restore
-
-    - name: Test
-      run: dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release
-
-    - name: Pack
-      if: github.ref_name == 'dev'
-      run: |
-        without_comma=$(echo "${{ github.event.head_commit.message }}" | sed 's/,/\\u002C/g')
-        dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageReleaseNotes="$without_comma"
-    
-    - name: Publish to Nuget
-      if: github.ref_name == 'dev'
-      run: |
-        package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"
-        dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
-
-    - name: Notify Release to Github & Telegram
-      if: always()
-      shell: pwsh      
-      run: |  
-        Write-Host "${{ github.event.commits }}"
+  run-powershell:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run PowerShell Command
+        run: |
+          $commits = '${{ github.event.commits }}' | ConvertFrom-Json
+          Write-Host $commits
+        shell: pwsh
