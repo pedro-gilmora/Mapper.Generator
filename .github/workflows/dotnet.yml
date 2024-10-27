@@ -12,5 +12,5 @@ jobs:
 
       - name: Run PowerShell Command
         run: |
-          Write-Host $('${{ toJson(github.event.commits) }}' | ConvertFrom-Json) |  ForEach-Object { "● $(escape $_.message)" })
+          Write-Host $('${{ toJson(github.event.commits) }}' | ConvertFrom-Json) |  ForEach-Object { "● $(escape $_.message)" }
         shell: pwsh
