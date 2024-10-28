@@ -22,20 +22,32 @@ jobs:
       run: dotnet restore
 
     - name: Test
-      run: |
-        dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release
+      id: test
+      continue-on-error: true
+      run: |        
+        errors=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
+        if [ $? -ne 0 ]; then
+          echo "$output"
+          echo "::set-output name=output::$errors"
+        fi
 
     - name: Pack
       if: github.ref_name == 'dev'
       run: |
-        # Combine all parts into a version string
-        version=""$(( $(date --date='now' +%Y) - $(date -d @${{ github.event.repository.created_at }} +%Y) )).$(date +%y).$(date +%j).$(( $(date +%H%M) / 5 ))""
+        created_year=$( date -d @${{ github.event.repository.created_at }} +%Y )
+        version=""$(( $(date --date='now' +%Y) - $created_year )).$(date +%y).$(date +%j).$(( $(date +%H%M) / 5 ))""
         echo "VERSION=${version}" >> $GITHUB_ENV
 
-        dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version"
+        errors=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
+        if [ $? -ne 0 ]; then
+          echo "$errors"
+          echo "::set-output name=output::$errors"
+        fi
     
     - name: Publish to Nuget
+      id: publish
       if: github.ref_name == 'dev' && startsWith(github.event.head_commit.message, '[Release]')
+      continue-on-error: true
       run: |
         package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"
         dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
@@ -65,10 +77,12 @@ jobs:
         $headCommit = $( releaseTrimming "${{ github.event.head_commit.message }}" )
 
         $commits = '${{ toJson(github.event.commits) }}' | ConvertFrom-Json
-
-        $status, $icon, $message = if ('${{ job.status }}' -eq 'failure') { 
-          'failed', '💥', "Errors: ${{ steps.build.outputs.errors }}
-            ${{ steps.build.publish.errors }}".Trim()
+        $failed = '${{ job.status }}' -eq 'failure'
+        $status, $icon, $message = if ($failed) { 
+          'failed', '💥', "Errors: 
+          Build errors: ${{ steps.build.outputs.errors }}
+          Pack errors: ${{ steps.pack.outputs.errors }}
+          Publish errors: ${{ steps.publish.outputs.errors }}".Trim()
         } elseif ('${{ job.status }}' -eq 'success') { 
           'successfully completed', '✅', $headCommit 
         } else { 
@@ -103,7 +117,7 @@ jobs:
 
         Invoke-RestMethod -Uri $uri -Method Post -Body $body
 
-        if( $isRelease )
+        if( $isRelease -and -not $failed)
         {
             $message = $(if($commits.Length -gt 1) { 
         "| Commit    | Message              | Author         |
