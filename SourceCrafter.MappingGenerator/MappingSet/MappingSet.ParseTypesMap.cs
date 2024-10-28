@@ -8,18 +8,18 @@ namespace SourceCrafter.Bindings;
 
 internal sealed partial class MappingSet
 {
-    TypeMapping ParseTypesMap
+    private TypeMapping ParseTypesMap
     (
         TypeMapping map,
         MemberMetadata source,
-        MemberMetadata target,
+        MemberMetadata target
         ApplyOn ignore,
         string sourceMappingPath,
         string targetMappingPath)
     {
         map.EnsureDirection(ref target, ref source);
 
-        GetNullability(target, map.TargetType._type, source, map.SourceType._type);
+        GetNullability(target, map.TargetType.Type, source, map.SourceType.Type);
 
         if (map.CanMap is not null)
         {
@@ -57,7 +57,7 @@ internal sealed partial class MappingSet
                 itemMap.AddTargetTryGet = true;
 
             if (itemMap.CanMap is false ||
-                !(source.Type.CollectionInfo.ItemDataType.HasPublicZeroArgsCtor && target.Type.CollectionInfo.ItemDataType.HasPublicZeroArgsCtor))
+                !(source.Type.CollectionInfo.ItemDataType.HasReachableZeroArgsCtor && target.Type.CollectionInfo.ItemDataType.HasReachableZeroArgsCtor))
             {
                 map.CanMap = map.IsCollection = false;
 
@@ -339,7 +339,7 @@ internal sealed partial class MappingSet
     private bool IsRecursive(string s, int id)
     {
         string n = $"+{id}+", ss;
-        int t = 1;
+        var t = 1;
 
         for (int nL = n.Length, start = Math.Abs(s.Length - n.Length), end = s.Length; start > -1 && end - start >= nL;)
         {
