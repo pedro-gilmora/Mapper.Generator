@@ -133,7 +133,7 @@ internal sealed partial class MappingSet
             if (ignore is not ApplyOn.Source or ApplyOn.Both && sourceScalarConversion.exists)
             {
                 var scalar = sourceScalarConversion.isExplicit
-                    ? $@"({map.SourceType.FullName}){{0}}"
+                    ? $"({map.SourceType.FullName}){{0}}"
                     : "{0}";
 
                 map.BuildSourceValue = (code, value) => code.AppendFormat(scalar, value);
