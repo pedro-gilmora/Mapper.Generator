@@ -109,10 +109,7 @@ jobs:
           $failed = '${{ job.status }}' -eq 'failure'
 
           $status, $icon, $message = if ($failed) {
-            'failed', '💥', "Errors:$( if( $errors.build ) { "
-            Build errors: $( $errors.build )" } )$( if( $errors.pack ) { "
-            Pack errors: $( $errors.pack )" } )$( if( $errors.pack ) { "
-            Publish errors: $( $errors.pack )" } )"
+            'failed', '💥', $errors
           } elseif ('${{ job.status }}' -eq 'success') {
             'successfully completed', '✅', $headCommit
           } else {
@@ -121,9 +118,9 @@ jobs:
           
           $message = @"
           🚀 *$(escape '${{ github.workflow }}')* \#1 Build $status $icon
-          👤 *Triggered by:* $(escape 'pedro-gilmora')
-          🌿 *Branch:* ${{ github.ref_name }}
-          🔗 *Change:* *[ $( "${{ github.event.head_commit.id }}".Substring(0,8) ) ]( $(escape "https://github.com/${{ github.event.head_commit.author.username }}") )*
+          👤 *Triggered by:* $( escape "${{ github.triggering_actor }}" )
+          🌿 *Branch:* $( escape "${{ github.ref_name }}" )
+          🔗 *Change:* *[ $( "$githubEvent.head_commit.id".Substring(0,8) ) ]( $(escape "https://github.com/$( $githubEvent.head_commit.author.username )") )*
   
           *$(escape $headCommit)*
   
@@ -145,4 +142,4 @@ jobs:
               message_thread_id = 4
           }
           
-          Invoke-RestMethod -Uri $uri -Method Post -
+          Invoke-RestMethod -Uri $uri -Method Post -$body
