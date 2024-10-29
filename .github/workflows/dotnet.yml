@@ -69,7 +69,7 @@ jobs:
           param (
             [string]$text
           )
-          return $( $text -replace '^\[Release\]\s*', '' -replace '"' '\"' )
+          return $( $text -replace '^\[Release\]\s*', '' -replace '"', '\"' )
         }
 
         $isRelease = "${{ github.event.head_commit.message }}" -match '^\[Release\]\s*'
