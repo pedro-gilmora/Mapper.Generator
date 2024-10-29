@@ -34,6 +34,7 @@ jobs:
         run: |
           errors=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
           if [ $? -ne 0 ]; then
+            echo $errors
             cat > errors.log << EOF
               Test Error: $errors
             EOF
@@ -48,6 +49,7 @@ jobs:
           
           errors=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
           if [ $? -ne 0 ]; then
+            echo $errors
             cat << EOF > errors.log
               Pack Error: $errors
             EOF
@@ -61,6 +63,7 @@ jobs:
           
           errors=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
           if [ $? -ne 0 ]; then
+            echo $errors
             cat << EOF > errors.log
               Publish Error: $errors
             EOF
@@ -124,7 +127,7 @@ jobs:
           🚀 *$(escape '${{ github.workflow }}')* \#1 Build $status $icon
           👤 *Triggered by:* $( escape "${{ github.triggering_actor }}" )
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
-          🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url )) )*
+          🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url ))*
   
           *$(escape $headCommit)*
   
