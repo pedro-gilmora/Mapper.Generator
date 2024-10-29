@@ -57,6 +57,8 @@ jobs:
       shell: pwsh
       env:        
          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+         HEAD_MESSAGE: ${{ github.event.head_commit.message }}
+         COMMITS: ${{ toJson(github.event.commits) }}
       run: |
         function escape {
           param (
@@ -72,11 +74,11 @@ jobs:
           return $( $text -replace '^\[Release\]\s*', '' -replace '"', '\"' )
         }
 
-        $isRelease = "${{ github.event.head_commit.message }}" -match '^\[Release\]\s*'
+        $isRelease = $env::HEAD_MESSAGE -match '^\[Release\]\s*'
 
-        $headCommit = $( releaseTrimming "${{ github.event.head_commit.message }}" )
+        $headCommit = $( releaseTrimming $env::HEAD_MESSAGE )
 
-        $commits = "${{ toJson(github.event.commits) }}".Replace('"', '\"') | ConvertFrom-Json
+        $commits = $env::COMMITS | ConvertFrom-Json
         
         $failed = '${{ job.status }}' -eq 'failure'
         
