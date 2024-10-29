@@ -107,6 +107,8 @@ jobs:
           $headCommit = releaseTrimming $githubEvent.head_commit.message
           $commits = $githubEvent.commits
           $failed = '${{ job.status }}' -eq 'failure'
+          
+          echo $commits
 
           $status, $icon, $message = if ($failed) {
             'failed', '💥', $errors
@@ -120,7 +122,7 @@ jobs:
           🚀 *$(escape '${{ github.workflow }}')* \#1 Build $status $icon
           👤 *Triggered by:* $( escape "${{ github.triggering_actor }}" )
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
-          🔗 *Change:* *[ $( "$githubEvent.head_commit.id".Substring(0,8) ) ]( $(escape "https://github.com/$( $githubEvent.head_commit.author.username )") )*
+          🔗 *Change:* *[ $( $githubEvent.head_commit.id.Substring(0,8) ) ]( $(escape "https://github.com/$( $githubEvent.head_commit.author.username )") )*
   
           *$(escape $headCommit)*
   
