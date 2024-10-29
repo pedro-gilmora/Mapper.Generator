@@ -93,7 +93,7 @@ jobs:
             'failed', '💥', "Errors:$( if( $errors.build ) { "
             Build errors: $( $errors.build )" } )$( if( $errors.pack ) { "
             Pack errors: $( $errors.pack )" } )$( if( $errors.pack ) { "
-            Publish errors: $( $errors.pack )" } )
+            Publish errors: $( $errors.pack )" } )"
           } elseif ('${{ job.status }}' -eq 'success') {
             'successfully completed', '✅', $headCommit
           } else {
