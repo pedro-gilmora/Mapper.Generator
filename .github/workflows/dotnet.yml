@@ -131,6 +131,8 @@ jobs:
             ", $( $commits | Select -Skip 1 | ForEach-Object { "[$($_.id.Substring(0,8))]($(escape $_.url)): $(escape $( releaseTrimming $_.message ) )
             by [$(escape $_.author.username)]( $(escape https://github.com/$($_.author.username)) )" }))
           })
+          
+          $( if($errors) { ``*$(escape $errors)*`` } )
           "@.Trim()
           
           Write-Host $message
