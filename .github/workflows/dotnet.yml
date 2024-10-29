@@ -12,7 +12,9 @@ jobs:
     steps:
       - name: Save GitHub Event Payload
         run: |
-          echo "${{ toJson(github.event) }}" > github_event.json
+          cat <<EOF > github_event.json
+          ${{ toJson(github.event) }}
+          EOF
 
       - name: Get source code
         uses: actions/checkout@v3
@@ -31,8 +33,9 @@ jobs:
         run: |
           errors=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
           if [ $? -ne 0 ]; then
-            echo "$output"
-            echo "$errors" >> errors.json
+            cat > errors.log << EOF
+              Test Error: $errors
+            EOF
           fi
 
       - name: Pack
@@ -44,16 +47,23 @@ jobs:
           
           errors=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
           if [ $? -ne 0 ]; then
-            echo "$errors"
-            echo "$errors" >> errors.json
+            cat << EOF > errors.log
+              Pack Error: $errors
+            EOF
           fi
 
       - name: Publish to Nuget
         id: publish
         if: github.ref_name == 'dev' && startsWith(github.event.head_commit.message, '[Release]')
         run: |
-          package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"
-          dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json
+          package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"         
+          
+          errors=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
+          if [ $? -ne 0 ]; then
+            cat << EOF > errors.log
+              Publish Error: $errors
+            EOF
+          fi
 
       - name: Notify Release to Github & Telegram
         if: always()
@@ -62,12 +72,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           # Load the event payload as JSON
-          $githubEvent = Get-Content -Path ./github_event.json -Raw | ConvertFrom-Json
+          $githubEvent = @{}          
+          if(Test-Path ./github_event.json) {
+            $githubEvent = Get-Content -Path ./github_event.json -Raw | ConvertFrom-Json
+          }
+          else
+          {
+            echo "Not found github action file"
+            return;
+          }
           
-          # Load errors from errors.json
-          $errors = @{}
-          if (Test-Path ./errors.json) {
-            $errors = Get-Content -Path ./errors.json -Raw | ConvertFrom-Json
+          # Load errors from errors.log
+          $errors = ""
+          if (Test-Path ./errors.log) {
+            $errors = $( Get-Content -Path ./errors.log )
           }
           
           function escape {
