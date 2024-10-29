@@ -62,7 +62,7 @@ jobs:
           param (
               [string]$text
           )
-          return $text -replace '([_\*\[\]\(\)~`>#\+\-=|{}\.!"'])', '\$1'
+          return $text -replace "([_\*\[\]\(\)~``>#\+\-=|{}\.!`"'])", '\$1'
         }
 
         function releaseTrimming {
