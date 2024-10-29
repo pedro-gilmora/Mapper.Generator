@@ -32,12 +32,18 @@ jobs:
       - name: Test
         id: test
         run: |
-          errors=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
-          if [ $errors -ne 0 ]; then
-            echo $errors
+          # Run the test command and capture both output and exit code
+          output=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
+          exit_code=$?
+          
+          # Check if the exit code is non-zero (indicating an error)
+          if [ $exit_code -ne 0 ]; then
+            # Print and save the output to a log file
+            echo "$output"
             cat > errors.log << EOF
-              Test Error: $errors
-            EOF
+          Test Error:
+          $output
+          EOF
           fi
 
       - name: Pack
@@ -47,12 +53,18 @@ jobs:
           version=""$(( $(date --date='now' +%Y) - $created_year )).$(date +%y).$(date +%j).$(( $(date +%H%M) / 5 ))""
           echo "VERSION=${version}" >> $GITHUB_ENV
           
-          errors=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
-          if [ $errors -ne 0 ]; then
-            echo $errors
-            cat << EOF > errors.log
-              Pack Error: $errors
-            EOF
+          # Run the pack command and capture both output and exit code
+          output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
+          exit_code=$?
+          
+          # Check if the exit code is non-zero (indicating an error)
+          if [ $exit_code -ne 0 ]; then
+            # Print and save the output to a log file
+            echo "$output"
+            cat > errors.log << EOF
+          Pack Error:
+          $output
+          EOF
           fi
 
       - name: Publish to Nuget
@@ -61,12 +73,18 @@ jobs:
         run: |
           package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"         
           
-          errors=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
-          if [ $errors -ne 0 ]; then
-            echo $errors
-            cat << EOF > errors.log
-              Publish Error: $errors
-            EOF
+          # Run the publish command and capture both output and exit code
+          output=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
+          exit_code=$?
+          
+          # Check if the exit code is non-zero (indicating an error)
+          if [ $exit_code -ne 0 ]; then
+            # Print and save the output to a log file
+            echo "$output"
+            cat > errors.log << EOF
+          Publish Error:
+          $output
+          EOF
           fi
 
       - name: Notify Release to Github & Telegram
