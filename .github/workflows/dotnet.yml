@@ -10,14 +10,15 @@ jobs:
     runs-on: 'ubuntu-latest'
 
     steps:
+
+      - name: Get source code
+        uses: actions/checkout@v3
+        
       - name: Save GitHub Event Payload
         run: |
           cat <<EOF > github_event.json
           ${{ toJson(github.event) }}
           EOF
-
-      - name: Get source code
-        uses: actions/checkout@v3
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v3
