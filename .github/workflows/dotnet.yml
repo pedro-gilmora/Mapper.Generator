@@ -144,7 +144,7 @@ jobs:
           
           $message = @"
           🚀 *$(escape '${{ github.workflow }}')* \#1 Build $status $icon
-          👤 *Triggered by:* $( escape "[${{ github.triggering_actor }}](https://github.com/${{ github.triggering_actor }}" ))
+          👤 *Triggered by:* [$( escape "${{ github.triggering_actor }}" )](https://github.com/$( escape "${{ github.triggering_actor }}" ))
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
           🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url ))*
   
