@@ -103,7 +103,7 @@ namespace SourceCrafter.Bindings.Helpers
             return code;
         }
 
-        private static string ToJoined(string identifier, string separator = "-", short casing = 0)
+        private static string ToJoined(string identifier string separator = "-", short casing = 0)
         {
             var buffer = new char[identifier.Length * (separator.Length + 1)];
             var bufferIndex = 0;
