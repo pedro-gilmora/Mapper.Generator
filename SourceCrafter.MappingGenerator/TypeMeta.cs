@@ -13,14 +13,17 @@ using System.Text;
 
 namespace SourceCrafter.Bindings;
 
-internal sealed class TypeMetadata
+internal sealed class TypeMeta
 {
     internal readonly int Id;
 
     internal readonly string
         FullName,
-        NotNullFullName,
-        NonGenericFullName,
+        NotNullFullName;
+
+    private readonly string         _nonGenericFullName;
+
+    internal readonly string
         ExportNonGenericFullName,
         SanitizedName,
         ExportFullName,
@@ -29,13 +32,13 @@ internal sealed class TypeMetadata
     private readonly TypeSet _typeSet;
     private readonly Compilation _compilation;
 
-    internal readonly ITypeSymbol _type;
+    internal readonly ITypeSymbol Type;
 
     internal readonly CollectionInfo CollectionInfo;
 
-    internal MemberCodeRenderer? NullableMethodUnsafeAccessor;
+    internal readonly MemberCodeRenderer? NullableMethodUnsafeAccessor = null;
 
-    public HashSet<PropertyCodeRenderer> UnsafePropertyFieldsGetters = new(PropertyCodeEqualityComparer.Default);
+    public readonly HashSet<PropertyCodeRenderer> UnsafePropertyFieldsGetters = new(PropertyCodeEqualityComparer.Default);
 
     internal readonly bool
         AllowsNull,
@@ -47,7 +50,7 @@ internal sealed class TypeMetadata
         IsValueType,
         IsKeyValueType,
         IsReference,
-        HasPublicZeroArgsCtor,
+        HasReachableZeroArgsCtor,
         IsPrimitive,
         IsEnum,
         IsIterable;
@@ -55,15 +58,15 @@ internal sealed class TypeMetadata
     internal bool IsRecursive;
     internal readonly bool DictionaryOwned;
 
-    private MemberMetadata[]? _members = null;
+    private MemberMeta[]? _members = null;
 
-    private readonly Func<MemberMetadata[]> _getMembers = null!;
+    private readonly Func<MemberMeta[]> _getMembers = null!;
 
     internal bool HasMembers => !Members.IsEmpty;
 
-    internal Span<MemberMetadata> Members => _members ??= _getMembers();
+    internal Span<MemberMeta> Members => _members ??= _getMembers();
 
-    internal TypeMetadata(TypeSet typeSet, Compilation compilation, TypeImplInfo typeMapInfo, int typeId, bool dictionaryOwned)
+    internal TypeMeta(TypeSet typeSet, Compilation compilation, TypeImplInfo typeMapInfo, int typeId, bool dictionaryOwned)
     {
         var type = typeMapInfo.Implementation ?? typeMapInfo.MembersSource;
         _typeSet = typeSet;
@@ -75,16 +78,16 @@ internal sealed class TypeMetadata
 
         type.TryGetNullable(out type, out var isNullable);
 
-        var preceedingNamespace = typeMapInfo.Implementation?.ContainingNamespace?.ToString() == "<global namespace>"
+        var precedingNamespace = typeMapInfo.Implementation?.ContainingNamespace?.ToString() == "<global namespace>"
             ? typeMapInfo.MembersSource.ContainingNamespace.ToGlobalNamespaced() + "."
             : null;
 
-        NotNullFullName = preceedingNamespace + type.ToGlobalNamespaced();
+        NotNullFullName = precedingNamespace + type.ToGlobalNamespaced();
         FullName = NotNullFullName;
 
-        ExportFullName = (ExportNotNullFullName = typeMapInfo.MembersSource.AsNonNullable() is { } memSource
+        ExportFullName = ExportNotNullFullName = typeMapInfo.MembersSource.AsNonNullable() is { } memSource
             ? memSource.ToGlobalNamespaced().TrimEnd('?')
-            : FullName);
+            : FullName;
 
         if (isNullable)
         {
@@ -94,36 +97,36 @@ internal sealed class TypeMetadata
 
         SanitizedName = SanitizeTypeName(type);
         AllowsNull = type.AllowsNull();
-        NonGenericFullName = type.ToGlobalNonGenericNamespace();
-        IsObject = NonGenericFullName == "object";
+        _nonGenericFullName = type.ToGlobalNonGenericNamespace();
+        IsObject = _nonGenericFullName == "object";
         ExportNonGenericFullName = type.ToGlobalNonGenericNamespace();
         IsTupleType = type.IsTupleType;
         IsValueType = type.IsValueType;
-        IsKeyValueType = NonGenericFullName.Length > 12 && NonGenericFullName[^12..] is "KeyValuePair";
-        IsStruct = type.TypeKind is TypeKind.Struct or TypeKind.Structure;
+        IsKeyValueType = _nonGenericFullName.Length > 12 && _nonGenericFullName[^12..] is "KeyValuePair";
+        IsStruct = type.TypeKind is TypeKind.Struct;
         IsPrimitive = type.IsPrimitive();
         IsReadOnly = type.IsReadOnly;
         IsInterface = type.TypeKind == TypeKind.Interface;
         IsReference = type.IsReferenceType;
 
-        HasPublicZeroArgsCtor =
+        HasReachableZeroArgsCtor =
             (type is INamedTypeSymbol { InstanceConstructors: { Length: > 0 } ctors }
              && ctors.FirstOrDefault(ctor => ctor.Parameters.IsDefaultOrEmpty)?
                     .DeclaredAccessibility is null or Accessibility.Public or Accessibility.Internal)
             || typeMapInfo.Implementation?.Kind is SymbolKind.ErrorType;
 
-        _type = type;
+        Type = type;
 
-        IsIterable = IsEnumerableType(NonGenericFullName, type, out CollectionInfo);
+        IsIterable = IsEnumerableType(_nonGenericFullName, type, out CollectionInfo);
 
         _getMembers = IsTupleType
             ? () => GetAllMembers(((INamedTypeSymbol)typeMapInfo.MembersSource!.AsNonNullable()).TupleElements)
             : () => GetAllMembers(typeMapInfo.MembersSource!.AsNonNullable());
     }
 
-    internal bool HasConversionTo(TypeMetadata target, out ScalarConversion toTarget, out ScalarConversion toSource)
+    internal bool HasConversionTo(TypeMeta target, out ScalarConversion toTarget, out ScalarConversion toSource)
     {
-        bool hasConversionResult = hasConversion(this, target, out toTarget);
+        var hasConversionResult = hasConversion(this, target, out toTarget);
 
         if (target.Id == Id) {
             toSource = toTarget;
@@ -132,7 +135,7 @@ internal sealed class TypeMetadata
 
         return hasConversionResult | hasConversion(target, this, out toSource);
 
-        bool hasConversion(TypeMetadata source, TypeMetadata target, out ScalarConversion info)
+        bool hasConversion(TypeMeta source, TypeMeta target, out ScalarConversion info)
         {
             if ((source, target) is not (
                 ({ IsTupleType: false }, { IsTupleType: false }) and
@@ -144,8 +147,8 @@ internal sealed class TypeMetadata
             }
 
             ITypeSymbol 
-                targetTypeSymbol = target._type.AsNonNullable(),
-                sourceTypeSymbol = source._type;
+                targetTypeSymbol = target.Type.AsNonNullable(),
+                sourceTypeSymbol = source.Type;
 
             var conversion = _compilation.ClassifyConversion(sourceTypeSymbol, targetTypeSymbol);
 
@@ -180,9 +183,9 @@ internal sealed class TypeMetadata
     }
 
 
-    MemberMetadata[] GetAllMembers(ITypeSymbol type)
+    private MemberMeta[] GetAllMembers(ITypeSymbol type)
     {
-        HashSet<MemberMetadata> members = new(PropertyNameEqualityComparer.Default);
+        HashSet<MemberMeta> members = new(PropertyNameEqualityComparer.Default);
 
         HashSet<int> ids = [];
 
@@ -196,12 +199,12 @@ internal sealed class TypeMetadata
         {
             if (type?.Name is not (null or "Object"))
             {
-                int i = 0;
+                var i = 0;
                 foreach (var member in type!.GetMembers())
                 {
                     if (member is IFieldSymbol { AssociatedSymbol: IPropertySymbol s })
                     {
-                        ids.Add(MappingSet._comparer.GetHashCode(s));
+                        ids.Add(MappingSet.Comparer.GetHashCode(s));
                         continue;
                     }
 
@@ -209,7 +212,7 @@ internal sealed class TypeMetadata
                         continue;
 
                     var isAccessible = member.DeclaredAccessibility is Accessibility.Public ||
-                            MappingSet._comparer.Equals(_compilation.SourceModule, member.ContainingModule);
+                            MappingSet.Comparer.Equals(_compilation.SourceModule, member.ContainingModule);
 
 
                     switch (member)
@@ -226,7 +229,7 @@ internal sealed class TypeMetadata
                             IsWriteOnly: var isWriteOnly,
                             SetMethod: var setMethod
                         } when isInterface || !impl:
-                            int id = MappingSet._comparer.GetHashCode(member);
+                            var id = MappingSet.Comparer.GetHashCode(member);
 
                             members.Add(
                                 new(id,
@@ -258,7 +261,7 @@ internal sealed class TypeMetadata
 
                         }:
                             members.Add(
-                                new(MappingSet._comparer.GetHashCode(member),
+                                new(MappingSet.Comparer.GetHashCode(member),
                                     member.ToNameOnly(),
                                     memberType.IsNullable(),
                                     true,
@@ -282,22 +285,23 @@ internal sealed class TypeMetadata
                 if(type.BaseType != null)
                     GetMembers(type.BaseType);
 
-                if (isFirstLevel)
-                    foreach (var iface in type.AllInterfaces)
-                        GetMembers(iface, false);
+                if (!isFirstLevel) return;
+            
+                foreach (var iface in type.AllInterfaces)
+                    GetMembers(iface, false);
             }
         }
     }
 
-    MemberMetadata[] GetAllMembers(ImmutableArray<IFieldSymbol> tupleFields)
+    private MemberMeta[] GetAllMembers(ImmutableArray<IFieldSymbol> tupleFields)
     {
-        HashSet<MemberMetadata> members = new(PropertyNameEqualityComparer.Default);
+        HashSet<MemberMeta> members = new(PropertyNameEqualityComparer.Default);
 
         if (tupleFields.IsDefaultOrEmpty) return [];
 
         foreach (var member in tupleFields)
             members.Add(
-                new(MappingSet._comparer.GetHashCode(member),
+                new(MappingSet.Comparer.GetHashCode(member),
                     member.ToNameOnly(),
                     member.Type.IsNullable(),
                     false,
@@ -311,11 +315,11 @@ internal sealed class TypeMetadata
         return [.. members];
     }
 
-    internal bool Equals(TypeMetadata obj) => MappingSet._comparer.Equals(_type, obj._type);
+    internal bool Equals(TypeMeta obj) => MappingSet.Comparer.Equals(Type, obj.Type);
 
     public override string ToString() => FullName;
 
-    class PropertyCodeEqualityComparer : IEqualityComparer<PropertyCodeRenderer>
+    private class PropertyCodeEqualityComparer : IEqualityComparer<PropertyCodeRenderer>
     {
         internal readonly static PropertyCodeEqualityComparer Default = new();
         public bool Equals(PropertyCodeRenderer x, PropertyCodeRenderer y)
@@ -329,7 +333,7 @@ internal sealed class TypeMetadata
         }
     }
 
-    string SanitizeTypeName(ITypeSymbol type)
+    private string SanitizeTypeName(ITypeSymbol type)
     {
         //string sanitizedTypeName = sanitizeTypeName();
 
@@ -357,7 +361,7 @@ internal sealed class TypeMetadata
                 
             default:
                 
-                string typeName = type.ToTypeNameFormat();
+                var typeName = type.ToTypeNameFormat();
                     
                 if (type is IArrayTypeSymbol { ElementType: { } elType })
                     typeName = SanitizeTypeName(elType) + "Array";
@@ -369,7 +373,7 @@ internal sealed class TypeMetadata
 
     internal void BuildEnumMethods(StringBuilder code)
     {
-        var members = _type.GetMembers();
+        var members = Type.GetMembers();
 
         if (members.Length == 0) return;
 
@@ -389,11 +393,11 @@ internal sealed class TypeMetadata
 
         foreach (var m in members.OfType<IFieldSymbol>())
         {
-            string fullMemberName = MemberFullName(m);
+            var fullMemberName = MemberFullName(m);
 
             values += collectionsComma + fullMemberName;
 
-            string descriptionStr = GetEnumDescription(m);
+            var descriptionStr = GetEnumDescription(m);
 
             descriptions += collectionsComma + descriptionStr;
 
@@ -404,7 +408,7 @@ internal sealed class TypeMetadata
             description += caseComma + "case " + fullMemberName + @": 
                 return " + descriptionStr + ";";
 
-            string distinctIntCase = "case " + Convert.ToString(m.ConstantValue!);
+            var distinctIntCase = "case " + Convert.ToString(m.ConstantValue!);
 
             if (!definedByInt.Contains(distinctIntCase))
             {
@@ -429,126 +433,186 @@ internal sealed class TypeMetadata
             ");
         }
 
-        code.AppendFormat(@"
+        code.Append(@"
+        
+    private static ")
+            .Append(NotNullFullName)
+            .Append("[]? _cached")
+            .Append(SanitizedName)
+            .Append(@"Values;
     
-    private static {0}[]? _cached{1}Values;
-    
-    public static {0}[]? GetValues(this {0} _)
-    {{
-        if(_cached{1}Values is not null) return _cached{1}Values;
+    public static global::System.Span<")
+            .Append(NotNullFullName)
+            .Append("> GetValues(this ")
+            .Append(NotNullFullName)
+            .Append(@" _)
+    {
+        if(_cached")
+            .Append(SanitizedName)
+            .Append("Values is not null) return _cached")
+            .Append(SanitizedName)
+            .Append(@"Values;
 
-        lock(__lock) return _cached{1}Values ??= new {0} [] {{
-            {2}
-        }};
-    }}
+        lock(__lock) return _cached")
+            .Append(SanitizedName)
+            .Append("Values ??= new ")
+            .Append(NotNullFullName)
+            .Append(@" [] {
+            ")
+            .Append(values)
+            .Append(@"
+        };
+    }
     
     private static string[]?
-        _cached{1}Descriptions,
-        _cached{1}Names;
+        _cached")
+            .Append(SanitizedName)
+            .Append(@"Descriptions,
+        _cached")
+            .Append(SanitizedName)
+            .Append(@"Names;
 
-    public static string[] GetDescriptions(this {0} _)
-    {{
-        if(_cached{1}Descriptions is not null) return _cached{1}Descriptions;
+    public static global::System.Span<string> GetDescriptions(this ")
+            .Append(NotNullFullName)
+            .Append(@" _)
+    {
+        if(_cached")
+            .Append(SanitizedName)
+            .Append("Descriptions is not null) return _cached")
+            .Append(SanitizedName)
+            .Append(@"Descriptions;
 
-        lock(__lock) return _cached{1}Descriptions ??= new string [] {{
-            {3}
-        }};
-    }}
+        lock(__lock) return _cached")
+            .Append(SanitizedName)
+            .Append(@"Descriptions ??= new string [] {
+            ")
+            .Append(descriptions)
+            .Append(@"
+        };
+    }
 
-    public static string[] GetNames(this {0} _)
-    {{
-        if(_cached{1}Names is not null) return _cached{1}Names;
+    public static global::System.Span<string> GetNames(this ")
+            .Append(NotNullFullName)
+            .Append(@" _)
+    {
+        if(_cached")
+            .Append(SanitizedName)
+            .Append("Names is not null) return _cached")
+            .Append(SanitizedName)
+            .Append(@"Names;
 
-        lock(__lock) return _cached{1}Names ??= new string [] {{
-            {4}
-        }};
-    }}
+        lock(__lock) return _cached")
+            .Append(SanitizedName)
+            .Append(@"Names ??= new string [] {
+            ")
+            .Append(names)
+            .Append(@"
+        };
+    }
 
-    public static string? GetName(this {0} value, bool throwOnNotFound = false) 
-	{{
+    public static string? GetName(this ")
+            .Append(NotNullFullName)
+            .Append(@" value, bool throwOnNotFound = false) 
+	{
 		switch(value)
-        {{
-            {5}
-            default: return throwOnNotFound ? value.ToString() : throw new global::System.Exception(""The value is not a valid identifier for type [{0}]""); 
-        }}
-    }}
+        {
+            ")
+            .Append(name)
+            .Append(@"
+            default: return throwOnNotFound ? value.ToString() : throw new global::System.Exception(""The value is not a valid identifier for type [")
+            .Append(NotNullFullName)
+            .Append(@"]""); 
+        }
+    }
 
-    public static string GetDescription(this {0} value, bool throwOnNotFound = false) 
-    {{
+    public static string GetDescription(this ")
+            .Append(NotNullFullName)
+            .Append(@" value, bool throwOnNotFound = false) 
+    {
 		switch(value)
-        {{
-            {6}
+        {
+            ")
+            .Append(description)
+            .Append(@"
             default: return throwOnNotFound ? value.ToString() : throw new global::System.Exception(""The value has no description""); 
-        }}
-    }}
+        }
+    }
 
-    public static bool IsDefined(this {0} _, string value)
-    {{
+    public static bool IsDefined(this ")
+            .Append(NotNullFullName)
+            .Append(@" _, string value)
+    {
 		switch(value)
-        {{
-            {7}
+        {
+            ")
+            .Append(definedByName)
+            .Append(@"
                 return true; 
             default: 
                 return false; 
-        }}
-    }}
+        }
+    }
 
-    public static bool IsDefined(this {0} _, int value)
-    {{
+    public static bool IsDefined(this ")
+            .Append(NotNullFullName)
+            .Append(@" _, int value)
+    {
         switch(value)
-        {{
-            {8}
+        {
+            ")
+            .Append(definedByInt)
+            .Append(@"
                 return true;
             default: 
                 return false; 
-        }}
-    }}
+        }
+    }
 
-    public static bool TryGetValue(this string value, out {0} result)
-    {{
+    public static bool TryGetValue(this string value, out ")
+            .Append(NotNullFullName)
+            .Append(@" result)
+    {
         switch(value)
-        {{
-            {9}
+        {
+            ")
+            .Append(tryGetValue)
+            .Append(@"
             default: result = default; return false; 
-        }}
-    }}
+        }
+    }
 
-    public static bool TryGetName(this {0} value, out string result)
-    {{
+    public static bool TryGetName(this ")
+            .Append(NotNullFullName)
+            .Append(@" value, out string result)
+    {
         switch(value)
-        {{
-            {10}
+        {
+            ")
+            .Append(tryGetName)
+            .Append(@"
             default: result = default!; return false; 
-        }}
-    }}
+        }
+    }
 
-    public static bool TryGetDescription(this {0} value, out string result)
-    {{
+    public static bool TryGetDescription(this ")
+            .Append(NotNullFullName)
+            .Append(@" value, out string result)
+    {
         switch(value)
-        {{
-            {11}
+        {
+            ")
+            .Append(tryGetDesc)
+            .Append(@"
             default: result = default!; return false; 
-        }}
-    }}",
-                NotNullFullName,
-                SanitizedName,
-                values,
-                descriptions,
-                names,
-                name,
-                description,
-                definedByName,
-                definedByInt,
-                tryGetValue,
-                tryGetName,
-                tryGetDesc);
+        }
+    }");
 
         string MemberFullName(IFieldSymbol m) => NotNullFullName + "." + m.Name;
     }
 
     internal void BuildKeyValuePair(StringBuilder sb, string _params)
     {
-        sb.AppendFormat("new {0}({1})", NonGenericFullName, _params);
+        sb.AppendFormat("new {0}({1})", _nonGenericFullName, _params);
     }
 
     internal void BuildTuple(StringBuilder sb, string _params)
@@ -568,16 +632,16 @@ internal sealed class TypeMetadata
         .FirstOrDefault(a => a.AttributeClass?.ToGlobalNamespaced() is "global::System.ComponentModel.DescriptionAttribute")
         ?.ConstructorArguments.FirstOrDefault().Value?.ToString() ?? m.Name.Wordify()}""";
 
-    private class PropertyNameEqualityComparer : IEqualityComparer<MemberMetadata>
+    private class PropertyNameEqualityComparer : IEqualityComparer<MemberMeta>
     {
         internal readonly static PropertyNameEqualityComparer Default = new();
 
-        public bool Equals(MemberMetadata x, MemberMetadata y) => x.Name == y.Name;
+        public bool Equals(MemberMeta x, MemberMeta y) => x.Name == y.Name;
 
-        public int GetHashCode(MemberMetadata obj) => obj.Name.GetHashCode();
+        public int GetHashCode(MemberMeta obj) => obj.Name.GetHashCode();
     }
 
-    bool IsEnumerableType(string nonGenericFullName, ITypeSymbol type, out CollectionInfo info)
+    private bool IsEnumerableType(string nonGenericFullName, ITypeSymbol type, out CollectionInfo info)
     {
         if (type.IsPrimitive(true))
         {
@@ -660,7 +724,7 @@ internal sealed class TypeMetadata
         return false;
     }
 
-    ITypeSymbol GetEnumerableType(ITypeSymbol enumerableType, bool isDictionary = false)
+    private static ITypeSymbol GetEnumerableType(ITypeSymbol enumerableType, bool isDictionary = false)
     {
         if (isDictionary)
             return ((INamedTypeSymbol)enumerableType)
@@ -676,35 +740,105 @@ internal sealed class TypeMetadata
 
     private CollectionInfo GetCollectionInfo(EnumerableType enumerableType, ITypeSymbol typeSymbol)
     {
-        typeSymbol = typeSymbol.AsNonNullable();
-
-        TypeMetadata itemDataType = _typeSet.GetOrAdd(typeSymbol, enumerableType == EnumerableType.Dictionary);
+        var itemDataType = _typeSet.GetOrAdd((typeSymbol = typeSymbol.AsNonNullable()), enumerableType == EnumerableType.Dictionary);
 
         return enumerableType switch
         {
 #pragma warning disable format
             EnumerableType.Dictionary =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, true,  true,   false,  "Add",      "Count"),
+                new(itemDataType, 
+                    enumerableType, 
+                    typeSymbol.IsNullable(), 
+                    true, 
+                    true, 
+                    true, 
+                    false, 
+                    "Add", 
+                    "Count"),
             EnumerableType.Queue =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), false, true, true,   false,  "Enqueue",  "Count"),
+                new(itemDataType,
+                    enumerableType,
+                    typeSymbol.IsNullable(),
+                    false,
+                    true,
+                    true,
+                    false,
+                    "Enqueue",
+                    "Count"),
             EnumerableType.Stack =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), false, true, true,   false,  "Push",     "Count"),
+                new(itemDataType,
+                    enumerableType,
+                    typeSymbol.IsNullable(),
+                    false,
+                    true,
+                    true,
+                    false,
+                    "Push",
+                    "Count"),
             EnumerableType.Enumerable =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), false, true, false,  true,   null,       "Length"),
+                new(itemDataType,
+                    enumerableType,
+                    typeSymbol.IsNullable(),
+                    false,
+                    true,
+                    false,
+                    true,
+                    null,
+                    "Length"),
             EnumerableType.ReadOnlyCollection =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, true,  true,   false,  "Add",      "Count"),
+                new(itemDataType,
+                    enumerableType,
+                    typeSymbol.IsNullable(),
+                    true,
+                    true,
+                    true,
+                    false,
+                    "Add",
+                    "Count"),
             EnumerableType.ReadOnlySpan =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, true,  true,   true,   null,       "Length"),
+                new(itemDataType,
+                    enumerableType,
+                    typeSymbol.IsNullable(),
+                    true,
+                    true,
+                    true,
+                    true,
+                    null,
+                    "Length"),
             EnumerableType.Collection =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, false, true,   false,  "Add",      "Count"),
+                new(itemDataType,
+                    enumerableType,
+                    typeSymbol.IsNullable(),
+                    true,
+                    false,
+                    true,
+                    false,
+                    "Add",
+                    "Count"),
             EnumerableType.Span =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, false, true,   true,   null,       "Length"),
+                new(itemDataType,
+                    enumerableType,
+                    typeSymbol.IsNullable(),
+                    true,
+                    false,
+                    true,
+                    true,
+                    null,
+                    "Length"),
             _ =>
-                new(itemDataType, enumerableType, typeSymbol.IsNullable(), true, false, true,   true,   null,       "Length")
+                new(itemDataType,
+                    enumerableType,
+                    typeSymbol.IsNullable(),
+                    true,
+                    false,
+                    true,
+                    true,
+                    null,
+                    "Length")
 #pragma warning restore format
         };
     }
-    }
+}
 
     internal record PropertyCodeRenderer(string Key, string Code) : MemberCodeRenderer(Code);
 

@@ -97,20 +97,20 @@ namespace SourceCrafter.Bindings.Helpers
             int start = code.Length, end = code.Length;
             action();
             end = code.Length;
-            char[] e = new char[end - start];
+            var e = new char[end - start];
             code.CopyTo(start, e, 0, end - start);
             expression = new(e, 0, e.Length);
             return code;
         }
 
-        static string ToJoined(string identifier, string separator = "-", short casing = 0)
+        private static string ToJoined(string identifier, string separator = "-", short casing = 0)
         {
             var buffer = new char[identifier.Length * (separator.Length + 1)];
             var bufferIndex = 0;
 
-            for (int i = 0; i < identifier.Length; i++)
+            for (var i = 0; i < identifier.Length; i++)
             {
-                char ch = identifier[i];
+                var ch = identifier[i];
                 bool isLetterOrDigit = char.IsLetterOrDigit(ch), isUpper = char.IsUpper(ch);
 
                 if (i > 0 && isUpper && char.IsLower(identifier[i - 1]))

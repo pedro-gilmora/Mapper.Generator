@@ -12,24 +12,24 @@ namespace SourceCrafter.Bindings;
 
 internal sealed partial class MappingSet
 {
-    void BuildMemberMapping(
+    private void BuildMemberMapping(
         StringBuilder code,
         bool isFill,
         ref string? comma,
         string spacing,
         ValueBuilder generateSourceValue,
-        MemberMetadata source,
-        MemberMetadata target,
+        MemberMeta source,
+        MemberMeta target,
         string copyTargetMethodName,
         string fillTargetMethodName,
         bool sourceRequiresMapper,
         bool sourceHasScalarConversion)
     {
-        bool checkNull = (!target.IsNullable || !target.Type.IsPrimitive || sourceRequiresMapper || sourceHasScalarConversion) && source.IsNullable;
+        var checkNull = (!target.IsNullable || !target.Type.IsPrimitive || sourceRequiresMapper || sourceHasScalarConversion) && source.IsNullable;
 
         if (isFill)
         {
-            TypeMetadata targetType = target.Type, sourceType = source.Type;
+            TypeMeta targetType = target.Type, sourceType = source.Type;
 
             bool
                 isNotAssignable = (target.IsReadOnly || target.IsInit)
@@ -38,7 +38,7 @@ internal sealed partial class MappingSet
                     && isNotAssignable
                     && (targetType.IsValueType || targetType.HasMembers);
 
-            if (useUnsafeWriter && !canUseUnsafeAccessor) return;
+            if (useUnsafeWriter && !_canUseUnsafeAccessor) return;
 
             bool
                 useFillMethod = !sourceHasScalarConversion && sourceRequiresMapper && targetType is { IsIterable: false, HasMembers: true, IsPrimitive: false },
@@ -47,7 +47,7 @@ internal sealed partial class MappingSet
                 isParentValueType = target.OwningType is not { IsValueType: false, IsStruct: false },
                 useNullUnsafeWriter = isValueType && target.IsNullable;
 
-            string targetMemberName = target.Name;
+            var targetMemberName = target.Name;
             
             if (useUnsafeWriter)
             {
@@ -128,7 +128,6 @@ internal sealed partial class MappingSet
                 {
                     code.Append(@"
         ");
-                    string targetValue;
 
                     if (useFillMethod)
                     {
@@ -139,11 +138,11 @@ internal sealed partial class MappingSet
                             code.Append("ref ");
                         }
 
-                        code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(", ").Append(BuildSourceParam(fill: true)).Append(")");
+                        code.CaptureGeneratedString(() => BuildTargetValue(code), out _).Append(", ").Append(BuildSourceParam(fill: true)).Append(")");
                     }
                     else
                     {
-                        code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ");
+                        code.CaptureGeneratedString(() => BuildTargetValue(code), out _).Append(" = ");
                         
                         BuildValue();
                     }
@@ -203,9 +202,9 @@ internal sealed partial class MappingSet
                 }
             }
         }
-        else if (target.CanBeInitialized && target.IsAccessible)
+        else if (target is { CanBeInitialized: true, IsAccessible: true })
         {
-            code.Append(Exch(ref comma, ",")).Append(spacing);
+            code.Append(Exchange(ref comma, ",")).Append(spacing);
 
             //return Exch(ref comma, ",") + spacing + (target.OwningType?.IsTupleType is not true ? target.Name + " = " : null)
             //    + GetValue("source." + source.Name);
@@ -236,7 +235,7 @@ internal sealed partial class MappingSet
         }
     }
 
-    bool AreNotMappableByDesign(bool ignoreCase, MemberMetadata source, MemberMetadata target, out bool ignoreSource, out bool ignoreTarget)
+    private bool AreNotMappableByDesign(bool ignoreCase, MemberMeta source, MemberMeta target, out bool ignoreSource, out bool ignoreTarget)
     {
         ignoreSource = ignoreTarget = false;
 
@@ -249,12 +248,12 @@ internal sealed partial class MappingSet
             | CheckMappability(source, target, ref ignoreTarget, ref ignoreSource));
     }
 
-    bool CheckMappability(MemberMetadata target, MemberMetadata source, ref bool ignoreTarget, ref bool ignoreSource)
+    private bool CheckMappability(MemberMeta target, MemberMeta source, ref bool ignoreTarget, ref bool ignoreSource)
     {
         if (target.IsReadOnly || source.IsWriteOnly)
             return false;
 
-        bool canWrite = false;
+        var canWrite = false;
 
         if (target.Attributes.IsDefaultOrEmpty) return canWrite;
 
@@ -298,7 +297,7 @@ internal sealed partial class MappingSet
                     Expression: IdentifierNameSyntax { Identifier.Text: "nameof" },
                     ArgumentList.Arguments: [{ Expression: MemberAccessExpressionSyntax { Name: { } id } }]
                 }
-                 && _comparer.GetHashCode(compilation.GetSemanticModel(id.SyntaxTree).GetSymbolInfo(id).Symbol) == source.Id)
+                 && Comparer.GetHashCode(compilation.GetSemanticModel(id.SyntaxTree).GetSymbolInfo(id).Symbol) == source.Id)
             {
                 canWrite = true;
 
@@ -322,5 +321,5 @@ internal sealed partial class MappingSet
         return canWrite;
     }
 
-    delegate void MemberBuilder(StringBuilder code, bool isFill);
+    private delegate void MemberBuilder(StringBuilder code, bool isFill);
 }

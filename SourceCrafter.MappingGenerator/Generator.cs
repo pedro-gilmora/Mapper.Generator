@@ -106,7 +106,7 @@ public class Generator : IIncrementalGenerator
 
         set.Initialize(0);
 
-        bool generatedLock = false;
+        var generatedLock = false;
 
         foreach (var enumType in enums)
         {
@@ -137,7 +137,7 @@ public static partial class EnumExtensions
                 generatedLock = true;
 
                 code.Insert(head.Length, @"
-    private static object? __lock = new();");
+    private static object __lock = new();");
             }
 
             code.Append(@"
@@ -156,13 +156,13 @@ public static partial class EnumExtensions
                 set.AddMapper(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
     }
 
-    private string BuildProperty(TypeMetadata type, SortedSet<string> enumPropertyNameSet)
+    private string BuildProperty(TypeMeta type, SortedSet<string> enumPropertyNameSet)
     {
         if (enumPropertyNameSet.Add(type.SanitizedName)) return type.SanitizedName;
 
-        var parentNamespace = type._type.ContainingType ?? (ISymbol?)type._type.ContainingAssembly;
+        var parentNamespace = type.Type.ContainingType ?? (ISymbol?)type.Type.ContainingAssembly;
 
-        string sanitizedName = type.SanitizedName;
+        var sanitizedName = type.SanitizedName;
 
         if (parentNamespace is not null)
 
@@ -182,7 +182,7 @@ public static partial class EnumExtensions
         return sanitizedName + i;
     }
 
-    IncrementalValueProvider<ImmutableArray<T>> FindMapperAttributes<T>(
+    private IncrementalValueProvider<ImmutableArray<T>> FindMapperAttributes<T>(
         IncrementalGeneratorInitializationContext context,
         string attrFullQualifiedName,
         Predicate<SyntaxNode> predicate,

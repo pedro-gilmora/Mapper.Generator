@@ -139,7 +139,7 @@ public class TestImplicitMapper
     [Fact]
     public void TestClass()
     {
-        DateTime today = DateTime.Today;
+        var today = DateTime.Today;
         (int, string)[] roles = [(0, "admin"), (1, "publisher")];
 
         var userDto = new UserDto

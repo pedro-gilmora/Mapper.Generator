@@ -14,10 +14,10 @@ internal sealed partial class MappingSet
         ApplyOn ignore,
         string sourceMappingPath,
         string targetMappingPath,
-        MemberMetadata source,
-        MemberMetadata target,
-        Span<MemberMetadata> sourceMembers,
-        Span<MemberMetadata> targetMembers
+        MemberMeta source,
+        MemberMeta target,
+        Span<MemberMeta> sourceMembers,
+        Span<MemberMeta> targetMembers
     )
     {
         if (map is { IsCollection: not true, TargetType.IsInterface: true, SourceType.IsInterface: true })
@@ -26,22 +26,23 @@ internal sealed partial class MappingSet
         string
             sourceExportFullTypeName = map.SourceType.ExportNotNullFullName,
             targetExportFullTypeName = map.TargetType.ExportNotNullFullName,
-            ttsTypeStart = map.SourceType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, map.SourceType.NotNullFullName),
-            ttsTypeEnd = map.SourceType.IsTupleType ? TUPLE_END : TYPE_END,
-            sttTypeStart = map.TargetType.IsTupleType ? TUPLE_START : string.Format(TYPE_START, map.TargetType.NotNullFullName),
-            sttTypeEnd = map.TargetType.IsTupleType ? TUPLE_END : TYPE_END,
+            ttsTypeStart = map.SourceType.IsTupleType ? TupleStart : string.Format(TypeStart, map.SourceType.NotNullFullName),
+            ttsTypeEnd = map.SourceType.IsTupleType ? TupleEnd : TypeEnd,
+            sttTypeStart = map.TargetType.IsTupleType ? TupleStart : string.Format(TypeStart, map.TargetType.NotNullFullName),
+            sttTypeEnd = map.TargetType.IsTupleType ? TupleEnd : TypeEnd,
             ttsSpacing = map.SourceType.IsTupleType ? " " : "\r\n            ",
             sttSpacing = map.TargetType.IsTupleType ? " " : "\r\n            ";
 
-        MemberBuilder
-            sourceMemberMappers = null!,
+        MemberBuilder?
+            sourceMemberMappers = null!;
+        MemberBuilder?
             targetMemberMappers = null!;
 
         string?
             sttComma = null,
             ttsComma = null;
 
-        uint mapId = map.Id;
+        var mapId = map.Id;
 
         bool
             toSameType = map.AreSameType,
@@ -81,8 +82,8 @@ internal sealed partial class MappingSet
 
             isRendered.defaultMethod = true;
 
-            if(target.Type.HasPublicZeroArgsCtor)
-                CreateDefaultMethod(code, isTargetRecursive, maxDepth, toSameType, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
+            if(target.Type.HasReachableZeroArgsCtor)
+                CreateDefaultMethod(code, isTargetRecursive, maxDepth, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
@@ -98,7 +99,7 @@ internal sealed partial class MappingSet
             {
                 isRendered.tryGetMethod = true;
 
-                CreateTryGetMethod(code, isTargetRecursive, maxDepth, toSameType, map.TryGetTargetMethodName, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
+                CreateTryGetMethod(code, isTargetRecursive, maxDepth, map.TryGetTargetMethodName, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
             }
         };
 
@@ -128,8 +129,8 @@ internal sealed partial class MappingSet
 
             isRendered.defaultMethod = true;
 
-            if (source.Type.HasPublicZeroArgsCtor)
-                CreateDefaultMethod(code, isSourceRecursive, source.MaxDepth, toSameType, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
+            if (source.Type.HasReachableZeroArgsCtor)
+                CreateDefaultMethod(code, isSourceRecursive, source.MaxDepth, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
@@ -145,7 +146,7 @@ internal sealed partial class MappingSet
             {
                 isRendered.tryGetMethod = true;
 
-                CreateTryGetMethod(code, isSourceRecursive, source.MaxDepth, toSameType, map.TryGetSourceMethodName, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
+                CreateTryGetMethod(code, isSourceRecursive, source.MaxDepth, map.TryGetSourceMethodName, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
             }
 
             map.BuildSourceMethod = null;
@@ -349,18 +350,19 @@ internal sealed partial class MappingSet
             map.AddSourceTryGet = false;
         }
 
+        return;
+
         void CreateDefaultMethod(
             StringBuilder code,
             bool isRecursive,
             int maxDepth,
-            bool toSameType,
             string typeStart,
             string typeEnd,
             string methodName,
             string sourceFullTypeName,
             string targetFullTypeName,
             string? defaultSourceBang,
-            MemberBuilder members,
+            MemberBuilder? members,
             bool hasComplexMembers)
         {
             if (members is null) return;
@@ -374,19 +376,14 @@ internal sealed partial class MappingSet
     /// <summary>
     /// Creates a new instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based on the given instance of <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@"""/>
     /// </summary>
-    /// <param name=""source"">Data source to be mappped</param>");
-    
-            if (isRecursive)
-            {
-                code.Append(@"
+    /// <param name=""source"">Data source to be mapped</param>");
+
+            code.Append(isRecursive
+                ? @"
     /// <param name=""depth"">Depth index for recursivity control</param>
-    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
-            }
-            else
-            {
-                code.Append(@"
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>"
+                : @"
     [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
-            }
 
             code.Append(@"
     public static ").Append(targetFullTypeName).AddSpace().Append(methodName).Append("(this ").Append(sourceFullTypeName).Append(" source");
@@ -421,13 +418,12 @@ internal sealed partial class MappingSet
             StringBuilder code,
             bool isRecursive,
             short maxDepth,
-            bool toSameType,
             string methodName,
             string toMethodName,
             string sourceFullTypeName,
             string targetFullTypeName,
             string? defaultSourceBang,
-            MemberBuilder members,
+            MemberBuilder? members,
             bool hasComplexMembers
         )
         {
@@ -441,21 +437,15 @@ internal sealed partial class MappingSet
     /// <summary>
     /// Tries to create a new instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based on a given instance of <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@"""/> if it's not null
     /// </summary>
-    /// <param name=""source"">Data source</param>");
-
-            if (isRecursive)
-            {
-                code.Append(@"
-    /// <param name=""depth"">Depth index for recursivity control</param>
-    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
-            }
-            else
-            {
-                code.Append(@"
-    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]");
-            }
-
-            code.Append(@"
+    /// <param name=""source"">Source instance</param>
+    /// <param name=""target"">Target instance</param>")
+                .Append(isRecursive
+                ? @"
+    /// <param name=""depth"">Depth index for recursive control</param>
+    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>"
+                : @"
+    [global::System.Runtime.CompilerServices.MethodImpl(global::System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]")
+                .Append(@"
     public static bool ").Append(methodName).Append("(this ").Append(sourceFullTypeName).Append(" source, out ").Append(targetFullTypeName).Append(" target");
 
             if (isRecursive)
@@ -499,13 +489,13 @@ internal sealed partial class MappingSet
             string targetFullTypeName,
             string sourceFullTypeName,
             string? sourceBang,
-            MemberBuilder members,
+            MemberBuilder? members,
             bool hasComplexMembers
         )
         {
             if (members is null) return;
 
-            string? _ref = (isValueType ? "ref " : null);
+            var _ref = (isValueType ? "ref " : null);
 
             string
                 targetExportFullXmlDocTypeName = targetExportFullTypeName.Replace("<", "{").Replace(">", "}"),
@@ -515,7 +505,8 @@ internal sealed partial class MappingSet
     /// <summary>
     /// Update an instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based on a given instance of <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@""" />
     /// </summary>
-    /// <param name=""source"">Data source to be mappped</param>");
+    /// <param name=""source"">Source instance</param>
+    /// <param name=""target"">Target instance</param>");
 
             if (isRecursive)
             {

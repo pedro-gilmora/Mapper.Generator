@@ -9,10 +9,10 @@ internal sealed partial class MappingSet
 {
 
     private bool CreateCollectionMapBuilders(
-        MemberMetadata source,
-        MemberMetadata target,
-        MemberMetadata sourceItem,
-        MemberMetadata targetItem,
+        MemberMeta source,
+        MemberMeta target,
+        MemberMeta sourceItem,
+        MemberMeta targetItem,
         bool call,
         CollectionInfo sourceCollInfo,
         CollectionInfo targetCollInfo,
@@ -42,9 +42,9 @@ internal sealed partial class MappingSet
             return isRecursive;
         }
 
-        bool isFor = collMapInfo.Iterator == "for";
+        var isFor = collMapInfo.Iterator == "for";
 
-        void buildCopy(StringBuilder code, ref RenderFlags isRendered)
+        void BuildCopy(StringBuilder code, ref RenderFlags isRendered)
         {
             if (isRendered.defaultMethod)
                 return;
@@ -56,7 +56,7 @@ internal sealed partial class MappingSet
                 sourceExportFullXmlDocTypeName = sourceFullTypeName.Replace("<", "{").Replace(">", "}"),
                 underlyingCollectionType = $"global::System.Collections.Generic.List<{targetItemFullTypeName}>()";
 
-            (string defaultType, string initType, ValueBuilder returnExpr) = (targetCollInfo.Type, target.Type.IsInterface) switch
+            (var defaultType, var initType, var returnExpr) = (targetCollInfo.Type, target.Type.IsInterface) switch
             {
                 (EnumerableType.ReadOnlyCollection, true) =>
                     ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, new ValueBuilder((code, v) => code.Append("new global::System.Collections.ObjectModel.ReadOnlyCollection<").Append(targetItemFullTypeName).Append(">(").Append(v).Append(")"))),
@@ -79,7 +79,7 @@ internal sealed partial class MappingSet
     /// <summary>
     /// Creates a new instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based from a given <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@"""/>
     /// </summary>
-    /// <param name=""source"">Data source to be mappped</param>");
+    /// <param name=""source"">Data source to be mapped</param>");
 
                 if (targetCollInfo.ItemDataType.IsRecursive)
                 {
@@ -131,11 +131,11 @@ internal sealed partial class MappingSet
     /// <summary>
     /// Creates a new instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based from a given <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@"""/>
     /// </summary>
-    /// <param name=""source"">Data source to be mappped</param>");
+    /// <param name=""source"">Source instance to be mapped</param>");
 
             if (targetCollInfo.ItemDataType.IsRecursive)
                 code.Append(@"
-    /// <param name=""depth"">Depth index for recursivity control</param>
+    /// <param name=""depth"">Depth index for recursive control</param>
     /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
 
             code.Append(@"
@@ -308,7 +308,7 @@ internal sealed partial class MappingSet
             code.Append(")");
         };
 
-        methodCreator = buildCopy;
+        methodCreator = BuildCopy;
 
         return true;
     }

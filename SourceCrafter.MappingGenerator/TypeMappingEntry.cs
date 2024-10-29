@@ -7,7 +7,7 @@ using SourceCrafter.Bindings.Helpers;
 
 namespace SourceCrafter.Bindings;
 
-delegate void MethodRenderer(StringBuilder code, ref RenderFlags rendered);
+internal delegate void MethodRenderer(StringBuilder code, ref RenderFlags rendered);
 
 internal struct TypeMappingEntry(uint id, int _next, TypeMapping info)
 {
@@ -36,7 +36,7 @@ internal class TypeMapping
 
     internal readonly uint Id;
 
-    bool _rendered = false;
+    private bool _rendered = false;
 
     internal Action<StringBuilder>? AuxiliarMappings;
 
@@ -56,7 +56,7 @@ internal class TypeMapping
 
     internal bool? CanMap;
 
-    internal readonly TypeMetadata TargetType, SourceType;
+    internal readonly TypeMeta TargetType, SourceType;
 
     internal CollectionMapping SourceCollectionMap, TargetCollectionMap;
 
@@ -89,7 +89,7 @@ internal class TypeMapping
 
     internal bool HasSourceToTargetMap => TargetHasScalarConversion || IsCollection is true || TargetMemberCount > 0;
 
-    internal void CollectTarget(ref TypeMetadata existingTarget, int targetId)
+    internal void CollectTarget(ref TypeMeta existingTarget, int targetId)
     {
         if (TargetType.Id == targetId)
             existingTarget = TargetType;
@@ -97,7 +97,7 @@ internal class TypeMapping
             existingTarget = SourceType;
     }
 
-    internal void CollectSource(ref TypeMetadata existingSource, int sourceId)
+    internal void CollectSource(ref TypeMeta existingSource, int sourceId)
     {
         if (SourceType.Id == sourceId)
             existingSource = SourceType;
@@ -107,7 +107,7 @@ internal class TypeMapping
 
     public override string ToString() => $"{TargetType.FullName} <=> {SourceType.FullName}";
 
-    internal void EnsureDirection(ref MemberMetadata target, ref MemberMetadata source)
+    internal void EnsureDirection(ref MemberMeta target, ref MemberMeta source)
     {
         target.Type ??= TargetType;
         source.Type ??= SourceType;
@@ -122,8 +122,8 @@ internal class TypeMapping
         string source = SourceType.SanitizedName,
             target = TargetType.SanitizedName;
 
-        ISymbol sourceContainer = SourceType._type.ContainingType ?? (ISymbol)SourceType._type.ContainingNamespace,
-            targetContainer = TargetType._type.ContainingType ?? (ISymbol)TargetType._type.ContainingNamespace;
+        ISymbol sourceContainer = SourceType.Type.ContainingType ?? (ISymbol)SourceType.Type.ContainingNamespace,
+            targetContainer = TargetType.Type.ContainingType ?? (ISymbol)TargetType.Type.ContainingNamespace;
 
         while (source == target)
         {
@@ -166,7 +166,7 @@ internal class TypeMapping
         AuxiliarMappings?.Invoke(code);
     }
 
-    public TypeMapping(uint id, TypeMetadata target, TypeMetadata source)
+    public TypeMapping(uint id, TypeMeta target, TypeMeta source)
     {
         var sameType = target.Id == source.Id;
 
@@ -193,7 +193,7 @@ internal class TypeMapping
         AreSameType = target.Id == source.Id;
         IsScalar = target.IsPrimitive && source.IsPrimitive;
         CanDepth = !target.IsPrimitive && !source.IsPrimitive
-            && (target._type.TypeKind, source._type.TypeKind) is not (TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown, TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown);
+            && (target.Type.TypeKind, source.Type.TypeKind) is not (TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown, TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown);
         IsTupleFromClass = target.IsTupleType && source is { IsPrimitive: false, IsIterable: false };
         IsReverseTupleFromClass = source.IsTupleType && target is { IsPrimitive: false, IsIterable: false };
         TargetType = target;
@@ -207,7 +207,7 @@ internal class TypeMapping
         }
     }
 
-    static CollectionMapping BuildCollectionMapping(CollectionInfo source, CollectionInfo target, string copyMethodName, string fillMethodName)
+    private static CollectionMapping BuildCollectionMapping(CollectionInfo source, CollectionInfo target, string copyMethodName, string fillMethodName)
     {
         bool redim = !source.Countable && target.BackingArray,
             isDictionary = source.IsDictionary && target.IsDictionary || CanMap(source, target) || CanMap(target, source);
@@ -218,14 +218,13 @@ internal class TypeMapping
 
         static bool CanMap(CollectionInfo source, CollectionInfo target)
         {
-            return source.IsDictionary && target.ItemDataType._type is INamedTypeSymbol { IsTupleType: true, TupleElements.Length: 2 };
+            return source.IsDictionary && target.ItemDataType.Type is INamedTypeSymbol { IsTupleType: true, TupleElements.Length: 2 };
         }
     }
 }
 
-
-readonly record struct CollectionInfo(
-    TypeMetadata ItemDataType,
+internal readonly record struct CollectionInfo(
+    TypeMeta ItemDataType,
     EnumerableType Type,
     bool IsItemNullable,
     bool Indexable,
@@ -238,6 +237,6 @@ readonly record struct CollectionInfo(
     internal readonly bool IsDictionary = Type is EnumerableType.Dictionary;
 };
 
-record struct CollectionMapping(bool IsDictionary, bool CreateArray, bool UseLenInsteadOfIndex, string Iterator, bool Redim, string? Method, string MethodName, string FillMethodName);
+internal record struct CollectionMapping(bool IsDictionary, bool CreateArray, bool UseLenInsteadOfIndex, string Iterator, bool Redim, string? Method, string MethodName, string FillMethodName);
 
 internal record KeyValueMappings(ValueBuilder Key, ValueBuilder Value);

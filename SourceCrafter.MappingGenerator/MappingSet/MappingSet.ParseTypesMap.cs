@@ -11,8 +11,8 @@ internal sealed partial class MappingSet
     private TypeMapping ParseTypesMap
     (
         TypeMapping map,
-        MemberMetadata source,
-        MemberMetadata target
+        MemberMeta source,
+        MemberMeta target,
         ApplyOn ignore,
         string sourceMappingPath,
         string targetMappingPath)
@@ -36,10 +36,7 @@ internal sealed partial class MappingSet
 
         if (map.IsCollection)
         {
-            int targetItemId = target.Type.CollectionInfo.ItemDataType.Id,
-                sourceItemId = source.Type.CollectionInfo.ItemDataType.Id;
-
-            MemberMetadata
+            MemberMeta
                 targetItem = new(target.Id, target.Name + "Item", target.Type.CollectionInfo.IsItemNullable),
                 sourceItem = new(source.Id, source.Name + "Item", source.Type.CollectionInfo.IsItemNullable);
 
@@ -122,7 +119,7 @@ internal sealed partial class MappingSet
             if (ignore is not ApplyOn.Target or ApplyOn.Both && targetScalarConversion.exists)
             {
                 var scalar = targetScalarConversion.isExplicit
-                    ? $@"({map.TargetType.FullName}){{0}}"
+                    ? $"({map.TargetType.FullName}){{0}}"
                     : "{0}";
 
                 map.BuildTargetValue = (code, value) => code.AppendFormat(scalar, value);
@@ -160,7 +157,7 @@ internal sealed partial class MappingSet
 
         void CreateKeyValueMapBuilder(TypeMapping map)
         {
-            MemberMetadata sourceKeyMember, sourceValueMember, targetKeyMember, targetValueMember;
+            MemberMeta sourceKeyMember, sourceValueMember, targetKeyMember, targetValueMember;
 
             switch ((
                 map.SourceType is { IsTupleType: true, Members.Length: 2 },
@@ -204,7 +201,7 @@ internal sealed partial class MappingSet
                     return;
             }
 
-            TypeMetadata
+            TypeMeta
                 sourceKeyType = sourceKeyMember.Type,
                 sourceValueType = sourceValueMember.Type,
                 targetKeyType = targetKeyMember.Type,
@@ -307,7 +304,7 @@ internal sealed partial class MappingSet
         }
     }
 
-    private void GetKeyValueProps(Span<MemberMetadata> members, out MemberMetadata keyProp, out MemberMetadata valueProp)
+    private void GetKeyValueProps(Span<MemberMeta> members, out MemberMeta keyProp, out MemberMeta valueProp)
     {
         keyProp = null!;
         valueProp = null!;

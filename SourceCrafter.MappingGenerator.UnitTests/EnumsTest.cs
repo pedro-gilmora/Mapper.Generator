@@ -28,11 +28,11 @@ public class EnumsTest
     [Fact]
     public void TestEnums()
     {
-        StatusEnum.GetValues().Should().BeEquivalentTo([Status.NotStarted, Status.Stopped, Status.Started, Status.Cancelled, Status.Failed]);
+        StatusEnum.GetValues().ToArray().Should().BeEquivalentTo([Status.NotStarted, Status.Stopped, Status.Started, Status.Cancelled, Status.Failed]);
 
-        StatusEnum.GetDescriptions().Should().BeEquivalentTo([NotStartedDesc, StoppedDesc, StartedDesc, CancelledDesc, Failure]);
+        StatusEnum.GetDescriptions().ToArray().Should().BeEquivalentTo([NotStartedDesc, StoppedDesc, StartedDesc, CancelledDesc, Failure]);
 
-        StatusEnum.GetNames().Should().BeEquivalentTo(["NotStarted", "Stopped", "Started", "Cancelled", "Failed"]);
+        StatusEnum.GetNames().ToArray().Should().BeEquivalentTo(["NotStarted", "Stopped", "Started", "Cancelled", "Failed"]);
 
         Status.Started.GetName().Should().Be("Started");
 
@@ -65,9 +65,9 @@ public class EnumsTest
     [Fact]
     public void TestAssemblyEnums()
     {
-        MappingKindEnum.GetDescriptions().Should().BeEquivalentTo(["All", "Normal", "Fill"]);
+        MappingKindEnum.GetDescriptions().ToArray().Should().BeEquivalentTo(["All", "Normal", "Fill"]);
 
-        MappingKindEnum.GetNames().Should().BeEquivalentTo(["All", "Normal", "Fill"]);
+        MappingKindEnum.GetNames().ToArray().Should().BeEquivalentTo(["All", "Normal", "Fill"]);
 
         MappingKind.Fill.GetName().Should().Be("Fill");
 

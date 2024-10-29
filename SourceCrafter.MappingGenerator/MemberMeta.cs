@@ -4,7 +4,7 @@ using System.Collections.Immutable;
 
 namespace SourceCrafter.Bindings;
 
-internal sealed record MemberMetadata(
+internal sealed record MemberMeta(
     int Id,
     string Name,
     bool IsNullable,
@@ -19,9 +19,9 @@ internal sealed record MemberMetadata(
 
     internal short MaxDepth = 1;
 
-    internal TypeMetadata Type = null!;
+    internal TypeMeta Type = null!;
 
-    internal TypeMetadata? OwningType;
+    internal TypeMeta? OwningType;
 
     internal bool IsAutoProperty, CanBeInitialized = true, IsAccessible = true;
 

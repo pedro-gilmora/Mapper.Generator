@@ -10,13 +10,13 @@ namespace SourceCrafter.Bindings;
 
 internal sealed class TypeSet(Compilation compilation)
 {
-    static readonly EqualityComparer<int> _intComparer = EqualityComparer<int>.Default;
+    private static readonly EqualityComparer<int> _intComparer = EqualityComparer<int>.Default;
 
 #pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
-    record struct TypeEntry(int Id) { internal TypeMetadata type; internal int next = 0; }
+    private record struct TypeEntry(int Id) { internal TypeMeta type; internal int next = 0; }
 #pragma warning restore CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
 
-    internal TypeMetadata GetOrAdd(ITypeSymbol typeSymbol, bool dictionaryOwned = false)
+    internal TypeMeta GetOrAdd(ITypeSymbol typeSymbol, bool dictionaryOwned = false)
     {
         var entries = _entries;
 
@@ -24,11 +24,11 @@ internal sealed class TypeSet(Compilation compilation)
 
         uint collisionCount = 0;
 
-        int hashCode = GetId(info.Implementation ?? info.MembersSource);
+        var hashCode = GetId(info.Implementation ?? info.MembersSource);
 
-        ref int bucket = ref GetBucket((uint)hashCode);
+        ref var bucket = ref GetBucket((uint)hashCode);
 
-        int i = bucket - 1; // Value in _buckets is 1-based
+        var i = bucket - 1; // Value in _buckets is 1-based
 
         while (true)
         {
@@ -87,7 +87,7 @@ internal sealed class TypeSet(Compilation compilation)
         return entry.type;
     }
 
-    static TypeImplInfo GetTypeMapInfo(ITypeSymbol targetSymbol)
+    private static TypeImplInfo GetTypeMapInfo(ITypeSymbol targetSymbol)
     {
         return targetSymbol is INamedTypeSymbol { } namedSymbol && namedSymbol.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Bindings.Attributes.IImplement"
             ? new(namedSymbol.TypeArguments[0], namedSymbol.TypeArguments[1])
@@ -95,15 +95,15 @@ internal sealed class TypeSet(Compilation compilation)
     }
 
     internal static int GetId(ITypeSymbol type) =>
-        MappingSet._comparer.GetHashCode(type.Name == "Nullable"
+        MappingSet.Comparer.GetHashCode(type.Name == "Nullable"
             ? ((INamedTypeSymbol)type).TypeArguments[0]
             : type);
 
     #region Dictionary Implementation
 
-    uint _count = 0;
+    private uint _count = 0;
 
-    TypeEntry[] _entries = [];
+    private TypeEntry[] _entries = [];
 
     private int[] _buckets = null!;
     private static readonly uint[] s_primes = [3, 7, 11, 17, 23, 29, 37, 47, 59, 71, 89, 107, 131, 163, 197, 239, 293, 353, 431, 521, 631, 761, 919, 1103, 1327, 1597, 1931, 2333, 2801, 3371, 4049, 4861, 5839, 7013, 8419, 10103, 12143, 14591, 17519, 21023, 25229, 30293, 36353, 43627, 52361, 62851, 75431, 90523, 108631, 130363, 156437, 187751, 225307, 270371, 324449, 389357, 467237, 560689, 672827, 807403, 968897, 1162687, 1395263, 1674319, 2009191, 2411033, 2893249, 3471899, 4166287, 4999559, 5999471, 7199369];
@@ -114,13 +114,13 @@ internal sealed class TypeSet(Compilation compilation)
 
     private static uint GetPrime(uint min)
     {
-        uint[] array = s_primes;
+        var array = s_primes;
 
-        foreach (uint num in array)
+        foreach (var num in array)
             if (num >= min)
                 return num;
 
-        for (uint j = min | 1u; j < uint.MaxValue; j += 2)
+        for (var j = min | 1u; j < uint.MaxValue; j += 2)
             if (IsPrime(j) && (j - 1) % 101 != 0)
                 return j;
 
@@ -133,7 +133,7 @@ internal sealed class TypeSet(Compilation compilation)
         {
             var num = Math.Sqrt(candidate);
 
-            for (int i = 3; i <= num; i += 2)
+            for (var i = 3; i <= num; i += 2)
                 if (candidate % i == 0)
                     return false;
 
@@ -163,7 +163,7 @@ internal sealed class TypeSet(Compilation compilation)
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private ref int GetBucket(uint hashCode)
     {
-        int[] buckets = _buckets;
+        var buckets = _buckets;
         return ref buckets[FastMod(hashCode, (uint)buckets.Length, _fastModMultiplier)];
     }
 
@@ -181,11 +181,11 @@ internal sealed class TypeSet(Compilation compilation)
         _buckets = new int[newSize];
         _fastModMultiplier = GetFastModMultiplier(newSize);
 
-        for (int j = 0; j < _count; j++)
+        for (var j = 0; j < _count; j++)
         {
             if (array[j].next >= -1)
             {
-                ref int bucket = ref GetBucket((uint)array[j].Id);
+                ref var bucket = ref GetBucket((uint)array[j].Id);
                 array[j].next = bucket - 1;
                 bucket = j + 1;
             }
@@ -195,7 +195,7 @@ internal sealed class TypeSet(Compilation compilation)
 
     private static uint ExpandPrime(uint oldSize)
     {
-        uint num = 2 * oldSize;
+        var num = 2 * oldSize;
         if (num > 2147483587u && 2147483587u > oldSize)
         {
             return 2147483587u;

@@ -1,9 +1,6 @@
-﻿#nullable disable
-using SourceCrafter.Bindings.Attributes;
+﻿using SourceCrafter.Bindings.Attributes;
 using System.Transactions;
 using Xunit;
-using SourceCrafter.Bindings;
-using System.Xml.Linq;
 using FluentAssertions;
 using SourceCrafter.Mvvm.Attributes;
 

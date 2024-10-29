@@ -10,7 +10,7 @@ internal delegate void ValueBuilder(StringBuilder code, string val);
 
 internal sealed partial class MappingSet
 {
-    static void GetNullability(MemberMetadata target, ITypeSymbol targetType, MemberMetadata source, ITypeSymbol sourceType)
+    private static void GetNullability(MemberMeta target, ITypeSymbol targetType, MemberMeta source, ITypeSymbol sourceType)
     {
         source.DefaultBang = GetDefaultBangChar(target.IsNullable, source.IsNullable, sourceType.AllowsNull());
         source.Bang = GetBangChar(target.IsNullable, source.IsNullable);
@@ -18,20 +18,20 @@ internal sealed partial class MappingSet
         target.Bang = GetBangChar(source.IsNullable, target.IsNullable);
     }
 
-    static string? GetDefaultBangChar(bool isTargetNullable, bool isSourceNullable, bool sourceAllowsNull)
+    private static string? GetDefaultBangChar(bool isTargetNullable, bool isSourceNullable, bool sourceAllowsNull)
         => !isTargetNullable && (sourceAllowsNull || isSourceNullable) ? "!" : null;
 
-    static string? GetBangChar(bool isTargetNullable, bool isSourceNullable)
+    private static string? GetBangChar(bool isTargetNullable, bool isSourceNullable)
         => !isTargetNullable && isSourceNullable ? "!" : null;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    static string? Exch(ref string? init, string? update = null) => ((init, update) = (update, init)).update;
+    private static string? Exchange(ref string? init, string? update = null) => ((init, _) = (update, init)).Item2;
 
-    static void GenerateValue
+    private static void GenerateValue
     (
         StringBuilder code,
         string item,
-        ValueBuilder generateValue,
+        ValueBuilder? generateValue,
         bool checkNull,
         bool call,
         bool isValueType,
@@ -39,7 +39,7 @@ internal sealed partial class MappingSet
         string? defaultSourceBang
     )
     {
-        generateValue ??= (code, _) => code.Append(item);
+        generateValue ??= (codeArg, _) => codeArg.Append(item);
 
         var indexerBracketPos = item.IndexOf('[');
 
@@ -64,15 +64,15 @@ internal sealed partial class MappingSet
             {
                 if (isValueType && defaultSourceBang != null)
                 {
-                    int startIndex = code.Length;
+                    var startIndex = code.Length;
 
                     generateValue(code, itemCache);
 
                     if (code[startIndex] == '(')
                     {
-                        int count = code.Length - startIndex;
+                        var count = code.Length - startIndex;
 
-                        code.Replace(item, "(" + item, startIndex, count)
+                        code.Replace(item, $"({item}", startIndex, count)
                             .Insert(startIndex + count + 1, " ?? default")
                             .Append(defaultSourceBang).Append(")");
                     }

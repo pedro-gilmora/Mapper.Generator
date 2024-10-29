@@ -12,29 +12,29 @@ namespace SourceCrafter.Bindings;
 
 internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSet)
 {
-    short targetScopeId, sourceScopeId;
+    private short _targetScopeId, _sourceScopeId;
 
-    readonly bool /*canOptimize = compilation.GetTypeByMetadataName("System.Span`1") is not null,
-        */canUseUnsafeAccessor = compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.UnsafeAccessorAttribute") is not null;
+    private readonly bool /*canOptimize = compilation.GetTypeByMetadataName("System.Span`1") is not null,
+        */_canUseUnsafeAccessor = compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.UnsafeAccessorAttribute") is not null;
 
     private const string
-        TUPLE_START = "(",
-        TUPLE_END = " )",
-        TYPE_START = @"new {0}
+        TupleStart = "(",
+        TupleEnd = " )",
+        TypeStart = @"new {0}
         {{",
-        TYPE_END = @"
+        TypeEnd = @"
         }";
 
-    static readonly EqualityComparer<uint> _uintComparer = EqualityComparer<uint>.Default;
+    private static readonly EqualityComparer<uint> UintComparer = EqualityComparer<uint>.Default;
 
-    internal static readonly SymbolEqualityComparer _comparer = SymbolEqualityComparer.Default;
+    internal static readonly SymbolEqualityComparer Comparer = SymbolEqualityComparer.Default;
 
     internal void AddMapper(ITypeSymbol sourceType, ITypeSymbol targetType, ApplyOn ignore, MappingKind mapKind, Action<string, string> addSource)
     {
-        TypeMetadata targetTypeData = typeSet.GetOrAdd(targetType),
+        TypeMeta targetTypeData = typeSet.GetOrAdd(targetType),
             sourceTypeData = typeSet.GetOrAdd(sourceType);
 
-        TypeMapping typeMapping = BuildMap(targetTypeData, sourceTypeData);
+        var typeMapping = BuildMap(targetTypeData, sourceTypeData);
 
         if (!typeMapping.AreSameType)
         {
@@ -42,19 +42,21 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
             BuildMap(sourceTypeData, sourceTypeData);
         }
 
-        TypeMapping BuildMap(TypeMetadata targetTypeData, TypeMetadata sourceTypeData)
+        return;
+
+        TypeMapping BuildMap(TypeMeta targetTypeData, TypeMeta sourceTypeData)
         {
 
-            MemberMetadata 
-                target = new(++targetScopeId, "to", targetType.IsNullable()), 
-                source = new(--sourceScopeId, "source", sourceType.IsNullable());
+            MemberMeta 
+                target = new(++_targetScopeId, "to", targetType.IsNullable()), 
+                source = new(--_sourceScopeId, "source", sourceType.IsNullable());
 
-            var typeMapping = GetOrAddMapper(targetTypeData, sourceTypeData);
+            var mapping = GetOrAddMapper(targetTypeData, sourceTypeData);
 
-            typeMapping.MappingsKind = mapKind;
+            mapping.MappingsKind = mapKind;
 
-            typeMapping = ParseTypesMap(
-                typeMapping,
+            mapping = ParseTypesMap(
+                mapping,
                 source,
                 target,
                 ignore,
@@ -68,30 +70,30 @@ public static partial class BindingExtensions
 {");
             var len = code.Length;
 
-            typeMapping.BuildMethods(code);
+            mapping.BuildMethods(code);
 
             if (code.Length == len)
-                return typeMapping;
+                return mapping;
 
-            var id = typeMapping.GetMappingHash();
+            var id = mapping.GetMappingHash();
 
             addSource(id, code.Append(@"
 }").ToString());
 
 
-            return typeMapping;
+            return mapping;
         }
     }
 
-    TypeMapping GetOrAddMapper(TypeMetadata target, TypeMetadata source)
+    private TypeMapping GetOrAddMapper(TypeMeta target, TypeMeta source)
     {
-        var entries = _entries;
+        var entries = Entries;
 
         var hashCode = GetId(target.Id, source.Id);
 
         uint collisionCount = 0;
-        ref int bucket = ref GetBucket(hashCode);
-        int i = bucket - 1; // Value in _buckets is 1-based
+        ref var bucket = ref GetBucket(hashCode);
+        var i = bucket - 1; // Value in _buckets is 1-based
 
         ref var entry = ref Unsafe.NullRef<TypeMappingEntry>();
 
@@ -104,7 +106,7 @@ public static partial class BindingExtensions
                 break;
             }
 
-            if (_uintComparer.Equals((entry = ref entries[i]).Id, hashCode))
+            if (UintComparer.Equals((entry = ref entries[i]).Id, hashCode))
             {
                 return entry.Info;
             }
@@ -136,14 +138,14 @@ public static partial class BindingExtensions
         }
         else
         {
-            if (_count == entries.Length)
+            if (Count == entries.Length)
             {
                 Resize();
                 bucket = ref GetBucket(hashCode);
             }
-            index = (int)_count;
-            _count++;
-            entries = _entries;
+            index = (int)Count;
+            Count++;
+            entries = Entries;
         }
 
         entries[index] = new(hashCode, bucket - 1, new(hashCode, target, source));
@@ -160,20 +162,20 @@ public static partial class BindingExtensions
     }
 
     internal static int GetId(ITypeSymbol type) => 
-        _comparer.GetHashCode(type.Name == "Nullable"
+        Comparer.GetHashCode(type.Name == "Nullable"
             ? ((INamedTypeSymbol)type).TypeArguments[0]
             : type);
 
-    static uint GetId(int targetId, int sourceId) => (uint)(Math.Min(targetId, sourceId), Math.Max(targetId, sourceId)).GetHashCode();
+    private static uint GetId(int targetId, int sourceId) => (uint)(Math.Min(targetId, sourceId), Math.Max(targetId, sourceId)).GetHashCode();
 
     #region Dictionary Implementation
 
-    internal uint _count = 0;
+    internal uint Count = 0;
 
-    internal TypeMappingEntry[] _entries = [];
+    internal TypeMappingEntry[] Entries = [];
 
     private int[] _buckets = null!;
-    private static readonly uint[] s_primes = [3, 7, 11, 17, 23, 29, 37, 47, 59, 71, 89, 107, 131, 163, 197, 239, 293, 353, 431, 521, 631, 761, 919, 1103, 1327, 1597, 1931, 2333, 2801, 3371, 4049, 4861, 5839, 7013, 8419, 10103, 12143, 14591, 17519, 21023, 25229, 30293, 36353, 43627, 52361, 62851, 75431, 90523, 108631, 130363, 156437, 187751, 225307, 270371, 324449, 389357, 467237, 560689, 672827, 807403, 968897, 1162687, 1395263, 1674319, 2009191, 2411033, 2893249, 3471899, 4166287, 4999559, 5999471, 7199369];
+    private static readonly uint[] SPrimes = [3, 7, 11, 17, 23, 29, 37, 47, 59, 71, 89, 107, 131, 163, 197, 239, 293, 353, 431, 521, 631, 761, 919, 1103, 1327, 1597, 1931, 2333, 2801, 3371, 4049, 4861, 5839, 7013, 8419, 10103, 12143, 14591, 17519, 21023, 25229, 30293, 36353, 43627, 52361, 62851, 75431, 90523, 108631, 130363, 156437, 187751, 225307, 270371, 324449, 389357, 467237, 560689, 672827, 807403, 968897, 1162687, 1395263, 1674319, 2009191, 2411033, 2893249, 3471899, 4166287, 4999559, 5999471, 7199369];
 
 
     private int _freeList;
@@ -182,13 +184,13 @@ public static partial class BindingExtensions
 
     private static uint GetPrime(uint min)
     {
-        uint[] array = s_primes;
+        var array = SPrimes;
 
-        foreach (uint num in array)
+        foreach (var num in array)
             if (num >= min)
                 return num;
 
-        for (uint j = min | 1u; j < uint.MaxValue; j += 2)
+        for (var j = min | 1u; j < uint.MaxValue; j += 2)
             if (IsPrime(j) && (j - 1) % 101 != 0)
                 return j;
 
@@ -201,7 +203,7 @@ public static partial class BindingExtensions
         {
             var num = Math.Sqrt(candidate);
 
-            for (int i = 3; i <= num; i += 2)
+            for (var i = 3; i <= num; i += 2)
                 if (candidate % i == 0)
                     return false;
 
@@ -223,7 +225,7 @@ public static partial class BindingExtensions
 #endif
 
         _buckets = buckets;
-        _entries = entries;
+        Entries = entries;
         return prime;
     }
 
@@ -232,7 +234,7 @@ public static partial class BindingExtensions
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private ref int GetBucket(uint hashCode)
     {
-        int[] buckets = _buckets;
+        var buckets = _buckets;
         return ref buckets[FastMod(hashCode, (uint)buckets.Length, _fastModMultiplier)];
     }
 
@@ -240,32 +242,32 @@ public static partial class BindingExtensions
     private static uint FastMod(uint value, uint divisor, ulong multiplier) 
         => (uint)(((multiplier * value >> 32) + 1) * divisor >> 32);
 
-    private void Resize() => Resize(ExpandPrime(_count));
+    private void Resize() => Resize(ExpandPrime(Count));
 
     private void Resize(uint newSize)
     {
         var array = new TypeMappingEntry[newSize];
 
-        Array.Copy(_entries, array, _count);
+        Array.Copy(Entries, array, Count);
 
         _buckets = new int[newSize];
         _fastModMultiplier = GetFastModMultiplier(newSize);
 
-        for (int j = 0; j < _count; j++)
+        for (var j = 0; j < Count; j++)
         {
             if (array[j].next >= -1)
             {
-                ref int bucket = ref GetBucket(array[j].Id);
+                ref var bucket = ref GetBucket(array[j].Id);
                 array[j].next = bucket - 1;
                 bucket = j + 1;
             }
         }
-        _entries = array;
+        Entries = array;
     }
 
     private static uint ExpandPrime(uint oldSize)
     {
-        uint num = 2 * oldSize;
+        var num = 2 * oldSize;
         if (num > 2147483587u && 2147483587u > oldSize)
         {
             return 2147483587u;
@@ -275,7 +277,7 @@ public static partial class BindingExtensions
 
     internal static bool AreTypeEquals(ITypeSymbol sourceType, ITypeSymbol targetType)
     {
-        return _comparer.Equals(sourceType, targetType);
+        return Comparer.Equals(sourceType, targetType);
     }
     #endregion
 }
