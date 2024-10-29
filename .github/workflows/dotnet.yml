@@ -36,6 +36,9 @@ jobs:
           output=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
           exit_code=$?
           
+          echo "Exit code: $exit_code"
+          echo "Command output: $output
+          
           # Check if the exit code is non-zero (indicating an error)
           if [ $exit_code -ne 0 ]; then
             # Print and save the output to a log file
@@ -143,7 +146,7 @@ jobs:
           }
           
           $message = @"
-          🚀 *$(escape '${{ github.workflow }}')* \#1 Build $status $icon
+          🚀 *$(escape '${{ github.workflow }}')* \#${{ github.run_number }} Build $status $icon
           👤 *Triggered by:* [$( escape "${{ github.triggering_actor }}" )](https://github.com/$( escape "${{ github.triggering_actor }}" ))
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
           🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url ))*
