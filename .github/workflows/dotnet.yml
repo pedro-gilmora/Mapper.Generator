@@ -107,6 +107,7 @@ jobs:
           # Load errors from errors.log
           $errors = ""
           if (Test-Path ./errors.log) {
+            echo "Found errors log file"
             $errors = $( Get-Content -Path ./errors.log )
           }
           
@@ -143,7 +144,7 @@ jobs:
           
           $message = @"
           🚀 *$(escape '${{ github.workflow }}')* \#1 Build $status $icon
-          👤 *Triggered by:* $( escape "${{ github.triggering_actor }}" )
+          👤 *Triggered by:* [${{ github.triggering_actor }}]($( escape "https://github.com/${{ github.triggering_actor }}" ))
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
           🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url ))*
   
