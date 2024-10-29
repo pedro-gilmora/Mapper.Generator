@@ -33,7 +33,7 @@ jobs:
         id: test
         run: |
           errors=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
-          if [ $? -ne 0 ]; then
+          if [ $errors -ne 0 ]; then
             echo $errors
             cat > errors.log << EOF
               Test Error: $errors
@@ -48,7 +48,7 @@ jobs:
           echo "VERSION=${version}" >> $GITHUB_ENV
           
           errors=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
-          if [ $? -ne 0 ]; then
+          if [ $errors -ne 0 ]; then
             echo $errors
             cat << EOF > errors.log
               Pack Error: $errors
@@ -62,7 +62,7 @@ jobs:
           package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"         
           
           errors=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
-          if [ $? -ne 0 ]; then
+          if [ $errors -ne 0 ]; then
             echo $errors
             cat << EOF > errors.log
               Publish Error: $errors
