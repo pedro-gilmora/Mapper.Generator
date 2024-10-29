@@ -33,19 +33,15 @@ jobs:
         id: test
         run: |
           # Run the test command and capture both output and exit code
-          output=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
-          exit_code=$?
-          
-          echo "Exit code: $exit_code"
-          echo "Command output: $output
-          
+          output=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release | grep -i ": error")
+        
           # Check if the exit code is non-zero (indicating an error)
-          if [ $exit_code -ne 0 ]; then
+          if [ "${#output}" -ne 0 ]; then
             # Print and save the output to a log file
             echo "$output"
-            cat > errors.log << EOF
+            cat <<EOF > errors.log 
           Test Error:
-          $output
+             $output
           EOF
           fi
 
@@ -55,16 +51,15 @@ jobs:
           created_year=$( date -d @${{ github.event.repository.created_at }} +%Y )
           version=""$(( $(date --date='now' +%Y) - $created_year )).$(date +%y).$(date +%j).$(( $(date +%H%M) / 5 ))""
           echo "VERSION=${version}" >> $GITHUB_ENV
-          
+
           # Run the pack command and capture both output and exit code
-          output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
-          exit_code=$?
+          output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" | grep -i ": error")
           
           # Check if the exit code is non-zero (indicating an error)
-          if [ $exit_code -ne 0 ]; then
+          if [ "${#output}" -ne 0 ]; then
             # Print and save the output to a log file
             echo "$output"
-            cat > errors.log << EOF
+            cat <<EOF > errors.log 
           Pack Error:
           $output
           EOF
@@ -75,18 +70,17 @@ jobs:
         if: github.ref_name == 'dev' && startsWith(github.event.head_commit.message, '[Release]')
         run: |
           package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"         
-          
+
           # Run the publish command and capture both output and exit code
-          output=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
-          exit_code=$?
+          output=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json | grep -i ": error")
           
           # Check if the exit code is non-zero (indicating an error)
-          if [ $exit_code -ne 0 ]; then
+          if [ "${#output}" -ne 0 ]; then
             # Print and save the output to a log file
             echo "$output"
-            cat > errors.log << EOF
+            cat <<EOF > errors.log 
           Publish Error:
-          $output
+            $output
           EOF
           fi
 
@@ -106,35 +100,35 @@ jobs:
             echo "Not found github action file"
             return;
           }
-          
+
           # Load errors from errors.log
           $errors = ""
           if (Test-Path ./errors.log) {
             echo "Found errors log file"
             $errors = $( Get-Content -Path ./errors.log )
           }
-          
-          echo $errors
-          
+
+          echo "These are the errors: $errors"
+
           function escape {
             param (
                 [string]$text
             )
             return $text -replace "([_\*\[\]\(\)~``>#\+\-=|{}\.!`"'])", '\$1'
           }
-          
+
           function releaseTrimming {
             param (
               [string]$text
             )
             return $( $text -replace '^\[Release\]\s*', '' -replace '"', '\"' )
           }
-          
+
           $isRelease = $githubEvent.head_commit.message -match '^\[Release\]\s*'
           $headCommit = releaseTrimming $githubEvent.head_commit.message
           $commits = $githubEvent.commits
           $failed = '${{ job.status }}' -eq 'failure'
-          
+
           echo $commits
 
           $status, $icon, $message = if ($failed) {
@@ -144,33 +138,33 @@ jobs:
           } else {
             'cancelled', '⛔', 'User aborted the action'
           }
-          
+
           $message = @"
           🚀 *$(escape '${{ github.workflow }}')* \#${{ github.run_number }} Build $status $icon
           👤 *Triggered by:* [$( escape "${{ github.triggering_actor }}" )](https://github.com/$( escape "${{ github.triggering_actor }}" ))
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
           🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url ))*
-  
+
           *$(escape $headCommit)*
-  
+
           $(if($commits.Length -gt 1) {
             [string]::Join("
             ", $( $commits | Select -Skip 1 | ForEach-Object { "[$($_.id.Substring(0,8))]($(escape $_.url)): $(escape $( releaseTrimming $_.message ) )
             by [$(escape $_.author.username)]( $(escape https://github.com/$($_.author.username)) )" }))
           })
-          
-          $( if($errors) { ``*$(escape $errors)*`` } )
+
+          $( if($errors) { "$( escape "```$errors```" )".Trim() } )
           "@.Trim()
-          
+
           Write-Host $message
 
           $uri = "https://api.telegram.org/bot${{ secrets.TGBOT_TOKEN }}/sendMessage"
 
           $body = @{
             chat_id = ${{ secrets.SC_CHATID }}
-            text    = $message
+            text = $message
             parse_mode = 'MarkdownV2'
             message_thread_id = 4
           }
-  
+
           Invoke-RestMethod -Uri $uri -Method Post -Body $body
