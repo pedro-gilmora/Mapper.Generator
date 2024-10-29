@@ -132,14 +132,14 @@ jobs:
           "@.Trim()
           
           Write-Host $message
-          
+
           $uri = "https://api.telegram.org/bot${{ secrets.TGBOT_TOKEN }}/sendMessage"
-          
+
           $body = @{
-              chat_id = ${{ secrets.SC_CHATID }}
-              text    = $message
-              parse_mode = 'MarkdownV2'
-              message_thread_id = 4
+            chat_id = ${{ secrets.SC_CHATID }}
+            text    = $message
+            parse_mode = 'MarkdownV2'
+            message_thread_id = 4
           }
-          
-          Invoke-RestMethod -Uri $uri -Method Post -$body
+  
+          Invoke-RestMethod -Uri $uri -Method Post -Body $body
