@@ -14,29 +14,29 @@ namespace SourceCrafter.Bindings.Helpers
 
     public static class Extensions
     {
-        private readonly static SymbolDisplayFormat
-            _globalizedNamespace = new(
+        private static readonly SymbolDisplayFormat
+            GlobalizedNamespace = new(
                 globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Included,
                 typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
                 genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeVariance,
                 miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier),
-            _globalizedNonGenericNamespace = new(
+            GlobalizedNonGenericNamespace = new(
                 globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Included,
                 typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
                 miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes),
-            _symbolNameOnly = new(typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameOnly),
-            _typeNameFormat = new(
+            SymbolNameOnly = new(typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameOnly),
+            TypeNameFormat = new(
                 typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypes,
                 genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeVariance,
                 miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
-        internal static string ToGlobalNamespaced(this ISymbol t) => t.ToDisplayString(_globalizedNamespace);
+        internal static string ToGlobalNamespaced(this ISymbol t) => t.ToDisplayString(GlobalizedNamespace);
         
-        internal static string ToGlobalNonGenericNamespace(this ISymbol t) => t.ToDisplayString(_globalizedNonGenericNamespace);
+        internal static string ToGlobalNonGenericNamespace(this ISymbol t) => t.ToDisplayString(GlobalizedNonGenericNamespace);
        
-        internal static string ToTypeNameFormat(this ITypeSymbol t) => t.ToDisplayString(_typeNameFormat);
+        internal static string ToTypeNameFormat(this ITypeSymbol t) => t.ToDisplayString(TypeNameFormat);
         
-        internal static string ToNameOnly(this ISymbol t) => t.ToDisplayString(_symbolNameOnly);
+        internal static string ToNameOnly(this ISymbol t) => t.ToDisplayString(SymbolNameOnly);
         
         internal static bool IsPrimitive(this ITypeSymbol target, bool includeObject = true) =>
             (includeObject && target.SpecialType is SpecialType.System_Object) || target.SpecialType is SpecialType.System_Enum
@@ -103,7 +103,7 @@ namespace SourceCrafter.Bindings.Helpers
             return code;
         }
 
-        private static string ToJoined(string identifier, string separator = "-", short casing = 0)
+        private static string ToJoined(string identifier, string separator = "-" short casing = 0)
         {
             var buffer = new char[identifier.Length * (separator.Length + 1)];
             var bufferIndex = 0;
