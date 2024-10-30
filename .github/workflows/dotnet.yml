@@ -109,7 +109,7 @@ jobs:
           $isRelease = $githubEvent.head_commit.message -match '^\[Release\]\s*'
           $headCommit = releaseTrimming $githubEvent.head_commit.message
           $commits = $githubEvent.commits
-          $failed = ('${{ job.status }}' -eq 'failure' -or 'true' == '${{ failure() }}') -and $errors 
+          $failed = '${{ job.status }}' -eq 'failure'
 
           #echo $commits
 
