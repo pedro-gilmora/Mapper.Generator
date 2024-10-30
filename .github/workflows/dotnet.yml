@@ -36,25 +36,23 @@ jobs:
           output=$(dotnet build SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
           
           # Check if the exit code is non-zero (indicating an error)
-          if [ "${#output}" -ne 0 ]; then
-            # Print and save the output to a log file
-            echo "$output"
-            cat <<EOF > errors.log 
-          Test Error:
-             $output
-          EOF
+          if [ $? -ne 0 ]; then
+            # Extract the required section preserving line jumps
+            extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
+            # Print the extracted section
+            echo -e "Build errors:
+          $extracted" >> errors.log
           fi
           
           output=$(dotnet test --no-build SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
           
           # Check if the exit code is non-zero (indicating an error)
-          if [ "${#output}" -ne 0 ]; then
-            # Print and save the output to a log file
-            echo "$output"
-            cat <<EOF > errors.log 
-          Test Error:
-             $output
-          EOF
+          if [ $? -ne 0 ]; then
+            # Extract the required section preserving line jumps
+            extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
+            # Print the extracted section
+            echo -e "Test errors:
+            $extracted" >> errors.log
           fi
 
       - name: Pack
@@ -68,13 +66,12 @@ jobs:
           output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
           
           # Check if the exit code is non-zero (indicating an error)
-          if [ "${#output}" -ne 0 ]; then
-            # Print and save the output to a log file
-            echo "$output"
-            cat <<EOF > errors.log 
-          Pack Error:
-          $output
-          EOF
+          if [ $? -ne 0 ]; then
+          # Extract the required section preserving line jumps
+            extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
+            # Print the extracted section
+            echo -e "Pack errors:
+            $extracted" >> errors.log
           fi
 
       - name: Publish to Nuget
@@ -87,13 +84,13 @@ jobs:
           output=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
           
           # Check if the exit code is non-zero (indicating an error)
-          if [ "${#output}" -ne 0 ]; then
-            # Print and save the output to a log file
-            echo "$output"
-            cat <<EOF > errors.log 
-          Publish Error:
-            $output
-          EOF
+          if [ $? -ne 0 ]; then
+            # Extract the required section preserving line jumps
+            extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
+            
+            # Print the extracted section
+            echo -e "Publish errors:
+            $extracted" >> errors.log
           fi
 
       - name: Notify Release to Github & Telegram
@@ -120,7 +117,7 @@ jobs:
             $errors = $( Get-Content -Path ./errors.log )
           }
 
-          #echo "These are the errors: $errors"
+          echo "These are the errors: [$errors]"
 
           function escape {
             param (
