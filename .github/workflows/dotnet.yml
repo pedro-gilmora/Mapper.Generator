@@ -35,6 +35,8 @@ jobs:
           # Run the test command and capture both output and exit code
           output=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release | grep -i ": error")
         
+          echo $output 
+          
           # Check if the exit code is non-zero (indicating an error)
           if [ "${#output}" -ne 0 ]; then
             # Print and save the output to a log file
