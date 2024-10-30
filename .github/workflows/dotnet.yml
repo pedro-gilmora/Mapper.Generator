@@ -145,7 +145,7 @@ jobs:
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
           🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url ))*
           
-          *$(releaseTrimming | escape $githubEvent.head_commit.message)*$(if($commits.Count -gt 1) { "
+          *$( escape | releaseTrimming $githubEvent.head_commit.message )*$(if($commits.Count -gt 1) { "
           
           $([string]::Join("
           ", $( $commits | 
