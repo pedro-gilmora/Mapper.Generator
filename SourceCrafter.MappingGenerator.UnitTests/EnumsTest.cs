@@ -44,7 +44,7 @@ public class EnumsTest
 
         StatusEnum.IsDefined(1).Should().BeTrue();
 
-        StatusEnum.IsDefined("Failed").Should().BeTrue()
+        StatusEnum.IsDefined("Failed").Should().BeTrue();
 
         StatusEnum.IsDefined(5).Should().BeFalse();
 
