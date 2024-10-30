@@ -37,6 +37,7 @@ jobs:
           
           # Check if the exit code is non-zero (indicating an error)
           if [ $? -ne 0 ]; then
+            echo $output
             # Extract the required section preserving line jumps
             extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
             # Print the extracted section
@@ -48,6 +49,7 @@ jobs:
           
           # Check if the exit code is non-zero (indicating an error)
           if [ $? -ne 0 ]; then
+            echo $output
             # Extract the required section preserving line jumps
             extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
             # Print the extracted section
@@ -67,7 +69,8 @@ jobs:
           
           # Check if the exit code is non-zero (indicating an error)
           if [ $? -ne 0 ]; then
-          # Extract the required section preserving line jumps
+            echo $output
+            # Extract the required section preserving line jumps
             extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
             # Print the extracted section
             echo -e "Pack errors:
@@ -85,6 +88,7 @@ jobs:
           
           # Check if the exit code is non-zero (indicating an error)
           if [ $? -ne 0 ]; then
+            echo $output
             # Extract the required section preserving line jumps
             extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
             
