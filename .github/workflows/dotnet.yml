@@ -33,7 +33,8 @@ jobs:
         id: test
         run: |
           # Run the test command and capture both output and exit code
-          output=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release | grep -i ": error")
+          output=$(dotnet build SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
+          output=$(dotnet test --no-build SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
         
           echo $output 
           
@@ -55,7 +56,7 @@ jobs:
           echo "VERSION=${version}" >> $GITHUB_ENV
 
           # Run the pack command and capture both output and exit code
-          output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" | grep -i ": error")
+          output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
           
           # Check if the exit code is non-zero (indicating an error)
           if [ "${#output}" -ne 0 ]; then
@@ -74,7 +75,7 @@ jobs:
           package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"         
 
           # Run the publish command and capture both output and exit code
-          output=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json | grep -i ": error")
+          output=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
           
           # Check if the exit code is non-zero (indicating an error)
           if [ "${#output}" -ne 0 ]; then
@@ -147,7 +148,7 @@ jobs:
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
           🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url ))*
   
-          *$(releaseTrimming | escape $githubEvent.head_commit.message)*$(if($commits.Count -gt 1) { "
+          *$(escape | releaseTrimming $githubEvent.head_commit.message)*$(if($commits.Count -gt 1) { "
           
           $([string]::Join("
           ", $( $commits | 
