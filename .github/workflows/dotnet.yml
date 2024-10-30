@@ -32,29 +32,11 @@ jobs:
       - name: Test
         id: test
         run: |
-          # Run the test command and capture both output and exit code
-          output=$(dotnet build SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
-          
-          # Check if the exit code is non-zero (indicating an error)
-          if [ $? -ne 0 ]; then
-            echo $output
-            # Extract the required section preserving line jumps
-            extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
-            # Print the extracted section
-            echo -e "Build errors:
-          $extracted" >> errors.log
-          fi
-          
-          output=$(dotnet test --no-build SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj --verbosity normal -c Release 2>&1)
-          
-          # Check if the exit code is non-zero (indicating an error)
-          if [ $? -ne 0 ]; then
-            echo $output
-            # Extract the required section preserving line jumps
-            extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
-            # Print the extracted section
+          output=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj -c Release | awk '/: error / { print }')
+  
+          if [ "${#output}" -ne 0 ]; then
             echo -e "Test errors:
-            $extracted" >> errors.log
+          $output" >> errors.log
           fi
 
       - name: Pack
@@ -63,38 +45,25 @@ jobs:
           created_year=$( date -d @${{ github.event.repository.created_at }} +%Y )
           version=""$(( $(date --date='now' +%Y) - $created_year )).$(date +%y).$(date +%j).$(( $(date +%H%M) / 5 ))""
           echo "VERSION=${version}" >> $GITHUB_ENV
-
-          # Run the pack command and capture both output and exit code
-          output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" 2>&1)
           
-          # Check if the exit code is non-zero (indicating an error)
-          if [ $? -ne 0 ]; then
-            echo $output
-            # Extract the required section preserving line jumps
-            extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
-            # Print the extracted section
+          output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" | awk '/: error / { print }')
+          
+          if [ "${#output}" -ne 0 ]; then
             echo -e "Pack errors:
-            $extracted" >> errors.log
+          $output" >> errors.log
           fi
 
       - name: Publish to Nuget
         id: publish
         if: github.ref_name == 'dev' && startsWith(github.event.head_commit.message, '[Release]')
         run: |
-          package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"         
-
-          # Run the publish command and capture both output and exit code
-          output=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json 2>&1)
+          package="$(find . -wholename '**/Pack/*.nupkg' -exec echo "{}" \;)"
           
-          # Check if the exit code is non-zero (indicating an error)
-          if [ $? -ne 0 ]; then
-            echo $output
-            # Extract the required section preserving line jumps
-            extracted=$(echo "$output" | awk '/Build FAILED/,/Warning/ { print }')
-            
-            # Print the extracted section
+          output=$(dotnet nuget push $package --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json | awk '/: error / { print }')
+          
+          if [ "${#output}" -ne 0 ]; then
             echo -e "Publish errors:
-            $extracted" >> errors.log
+          $output" >> errors.log
           fi
 
       - name: Notify Release to Github & Telegram
@@ -140,7 +109,7 @@ jobs:
           $isRelease = $githubEvent.head_commit.message -match '^\[Release\]\s*'
           $headCommit = releaseTrimming $githubEvent.head_commit.message
           $commits = $githubEvent.commits
-          $failed = '${{ job.status }}' -eq 'failure'
+          $failed = ('${{ job.status }}' -eq 'failure' -or 'true' == '${{ failure() }}') -and $errors 
 
           #echo $commits
 
