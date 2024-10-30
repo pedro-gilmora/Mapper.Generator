@@ -112,9 +112,9 @@ jobs:
 
           # Load errors from errors.log
           $errors = ""
-          if (Test-Path ./errors.log) {
+          if (Test-Path "./errors.log") {
             echo "Found errors log file"
-            $errors = $( Get-Content -Path ./errors.log )
+            $errors = $( Get-Content -Path "./errors.log" )
           }
 
           echo "These are the errors: [$errors]"
@@ -138,7 +138,7 @@ jobs:
           $commits = $githubEvent.commits
           $failed = '${{ job.status }}' -eq 'failure'
 
-          echo $commits
+          #echo $commits
 
           $status, $icon, $message = if ($failed) {
             'failed', '💥', $errors
