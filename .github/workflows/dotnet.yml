@@ -77,11 +77,6 @@ jobs:
           if(Test-Path ./github_event.json) {
             $githubEvent = Get-Content -Path ./github_event.json -Raw | ConvertFrom-Json
           }
-          else
-          {
-            echo "Not found github action file"
-            return;
-          }
 
           # Load errors from errors.log
           $errors = ""
