@@ -62,6 +62,7 @@ public class EnumsTest
 
         ((Status)6).TryGetDescription(out _).Should().BeFalse();
     }
+    
     [Fact]
     public void TestAssemblyEnums()
     {
