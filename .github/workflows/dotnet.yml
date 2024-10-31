@@ -103,7 +103,7 @@ jobs:
 
           $isRelease = $githubEvent.head_commit.message -match '^\[Release\]\s*'
           $headCommit = releaseTrimming $githubEvent.head_commit.message
-          $commits = $githubEvent.commits
+          $commits = [System.Collections.Stack]::new( $githubEvent.commits )
           $failed = '${{ job.status }}' -eq 'failure'
 
           #echo $commits
@@ -122,13 +122,13 @@ jobs:
           🌿 *Branch:* $( escape "${{ github.ref_name }}" )
           🔗 *Change:* *[$( $githubEvent.head_commit.id.Substring(0,8) )]($( escape $githubEvent.head_commit.url ))*
   
-          *$(escape | releaseTrimming $githubEvent.head_commit.message)*$(if($commits.Count -gt 1) { "
+          *$(escape ( releaseTrimming $githubEvent.head_commit.message) )*$(if($commits.Count -gt 1 ) { "
           
           $([string]::Join("
           ", $( $commits | 
-            Select -Skip 1 | 
-            ForEach-Object { 
-              "🔹[$($_.id.Substring(0,8))]($(escape $_.url)): $(escape $_.message )
+          Select -Skip 1 | 
+          ForEach-Object { 
+              "🔹[$($_.id.Substring(0,8))]($(escape $_.url)): $(escape ( releaseTrimming $_.message ) )
             by [$(escape $_.author.username)]($( escape https://github.com/$($_.author.username) ))"
           })))"
           })$( if($errors) { "
@@ -137,7 +137,7 @@ jobs:
           $( escape $errors.Trim() )
           ``````" } )
           "@
-          echo "failed: $failed, isRelease: $isRelease"
+          
           if( $isRelease -and -not $failed ) 
           {
             gh release create v${{ env.VERSION }} -t "$(releaseTrimming $githubEvent.head_commit.message)" -n $(if($commits.Count -gt 1) { "| ID | Message | Author |
