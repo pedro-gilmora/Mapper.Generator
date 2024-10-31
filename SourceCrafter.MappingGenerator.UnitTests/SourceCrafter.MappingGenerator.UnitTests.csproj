@@ -11,8 +11,6 @@
 	<ItemGroup>
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
 		<PackageReference Include="FluentAssertions" Version="6.12.0" PrivateAssets="all" />
-		<!--<PackageReference Include="Microsoft.CodeAnalysis.Common" Version="4.4.0" />
-		<PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.4.0" />-->
 		<PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" PrivateAssets="all" />
 		<PackageReference Include="SourceCrafter.ViewModelGenerator" Version="1.24.70.57" />
 		<PackageReference Include="xunit" Version="2.7.0" PrivateAssets="all" />
@@ -28,11 +26,6 @@
 	<ItemGroup>
 		<ProjectReference Include="..\SourceCrafter.MappingGenerator\SourceCrafter.Bindings.csproj" OutputItemType="Analyzer" />
 	</ItemGroup>
-
-	<!--<PropertyGroup Condition=" $(Configuation) == 'Debug' Or $(Configuation) == 'Debug SG' ">
-		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
-		<CompilerGeneratedFilesOutputPath>GeneratedFiles</CompilerGeneratedFilesOutputPath>
-	</PropertyGroup>-->
 
 
 </Project>
