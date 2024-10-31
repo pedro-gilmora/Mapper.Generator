@@ -137,10 +137,12 @@ jobs:
             by [$(escape $_.author.username)]($( escape https://github.com/$($_.author.username) ))"
           })))"
           })$( if($errors) { "
-            
-            ``````$( escape $errors.Trim() )``````" } )
-          "@
           
+          ``````
+          $( escape $errors.Trim() )
+          ``````" } )
+          "@
+          echo "failed: $failed, isRelease: $isRelease"
           if( -not $failed -and $isRelease ) 
           {
             gh release create v${{ env.VERSION }} -t "$(releaseTrimming $githubEvent.head_commit.message)" -n $(if($commits.Count -gt 1) { "| ID | Message | Author |
