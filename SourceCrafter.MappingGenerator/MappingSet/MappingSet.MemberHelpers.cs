@@ -196,18 +196,13 @@ internal sealed partial class MappingSet
                 {
                     return $"{copyTargetMethodName}({sourceExpr})";
                 }
-                else
-                {
-                    return sourceExpr;
-                }
+
+                return sourceExpr;
             }
         }
         else if (target is { CanBeInitialized: true, IsAccessible: true })
         {
             code.Append(Exchange(ref comma, ",")).Append(spacing);
-
-            //return Exch(ref comma, ",") + spacing + (target.OwningType?.IsTupleType is not true ? target.Name + " = " : null)
-            //    + GetValue("source." + source.Name);
 
             if (target.OwningType?.IsTupleType is not true)
             {
@@ -216,10 +211,7 @@ internal sealed partial class MappingSet
 
             BuildValue();
         }
-
-        // Rest of the code...
-
-        //Add agressive inlining spec
+        
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         void BuildValue()
         {
@@ -297,7 +289,7 @@ internal sealed partial class MappingSet
                     Expression: IdentifierNameSyntax { Identifier.Text: "nameof" },
                     ArgumentList.Arguments: [{ Expression: MemberAccessExpressionSyntax { Name: { } id } }]
                 }
-                 && Comparer.GetHashCode(compilation.GetSemanticModel(id.SyntaxTree).GetSymbolInfo(id).Symbol) == source.Id)
+                 && SymbolEqualityComparer.Default.GetHashCode(compilation.GetSemanticModel(id.SyntaxTree).GetSymbolInfo(id).Symbol) == source.Id)
             {
                 canWrite = true;
 

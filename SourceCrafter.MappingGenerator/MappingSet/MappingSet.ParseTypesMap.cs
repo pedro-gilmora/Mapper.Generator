@@ -8,7 +8,7 @@ namespace SourceCrafter.Bindings;
 
 internal sealed partial class MappingSet
 {
-    private TypeMapping ParseTypesMap
+    private TypeMapping DiscoverTypeMaps
     (
         TypeMapping map,
         MemberMeta source,
@@ -23,10 +23,10 @@ internal sealed partial class MappingSet
 
         if (map.CanMap is not null)
         {
-            if (!map.TargetType.IsRecursive && !map.TargetType.IsStruct && !map.TargetType.IsPrimitive)
+            if (map.TargetType is { IsRecursive: false, IsStruct: false, IsPrimitive: false })
                 map.TargetType.IsRecursive = IsRecursive(targetMappingPath + map.TargetType.Id + "+", map.TargetType.Id);
 
-            if (!map.SourceType.IsRecursive && !map.SourceType.IsStruct && !map.SourceType.IsPrimitive)
+            if (map.SourceType is { IsRecursive: false, IsStruct: false, IsPrimitive: false })
                 map.SourceType.IsRecursive = map.AreSameType
                     ? map.TargetType.IsRecursive
                     : IsRecursive(sourceMappingPath + map.SourceType.Id + "+", map.SourceType.Id);
@@ -40,7 +40,7 @@ internal sealed partial class MappingSet
                 targetItem = new(target.Id, target.Name + "Item", target.Type.CollectionInfo.IsItemNullable),
                 sourceItem = new(source.Id, source.Name + "Item", source.Type.CollectionInfo.IsItemNullable);
 
-            var itemMap = GetOrAddMapper(target.Type.CollectionInfo.ItemDataType, source.Type.CollectionInfo.ItemDataType);
+            var itemMap = GetOrAdd(target.Type.CollectionInfo.ItemDataType, source.Type.CollectionInfo.ItemDataType);
 
             map.ItemMapId = itemMap.Id;
 
@@ -61,7 +61,7 @@ internal sealed partial class MappingSet
                 return map;
             }
 
-            itemMap = ParseTypesMap(
+            itemMap = DiscoverTypeMaps(
                 itemMap,
                 sourceItem,
                 targetItem,
@@ -71,7 +71,7 @@ internal sealed partial class MappingSet
 
             if (itemMap.CanMap is true && map.CanMap is null && true ==
                 (map.CanMap =
-                    ignore is not ApplyOn.Target or ApplyOn.Both &&
+                    ignore is not (ApplyOn.Target or ApplyOn.Both) &&
                     (!itemMap.TargetType.IsInterface && (map.TargetRequiresMapper = CreateCollectionMapBuilders(
                         source,
                         target,
@@ -86,7 +86,7 @@ internal sealed partial class MappingSet
                         ref map.BuildTargetValue,
                         ref map.BuildTargetMethod)))
                     |
-                    (ignore is not ApplyOn.Source or ApplyOn.Both &&
+                    (ignore is not (ApplyOn.Source or ApplyOn.Both) &&
                     !itemMap.SourceType.IsInterface && (map.SourceRequiresMapper = CreateCollectionMapBuilders(
                         target,
                         source,
@@ -102,7 +102,7 @@ internal sealed partial class MappingSet
                         ref map.BuildSourceMethod))))
             )
             {
-                map.AuxiliarMappings += itemMap.BuildMethods;
+                map.ExtraMappings += itemMap.BuildMethods;
             }
             else
             {
@@ -208,11 +208,11 @@ internal sealed partial class MappingSet
                 targetValueType = targetValueMember.Type;
 
             TypeMapping
-                keyMapping = GetOrAddMapper(sourceKeyType, targetKeyType),
-                valueMapping = GetOrAddMapper(sourceValueType, targetValueType);
+                keyMapping = GetOrAdd(sourceKeyType, targetKeyType),
+                valueMapping = GetOrAdd(sourceValueType, targetValueType);
 
-            keyMapping = ParseTypesMap(keyMapping, sourceValueMember, sourceKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
-            valueMapping = ParseTypesMap(valueMapping, targetValueMember, targetKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
+            keyMapping = DiscoverTypeMaps(keyMapping, sourceValueMember, sourceKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
+            valueMapping = DiscoverTypeMaps(valueMapping, targetValueMember, targetKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
 
             if (keyMapping.CanMap is false && valueMapping.CanMap is false) map.CanMap = false;
 

@@ -27,32 +27,6 @@ internal sealed record MemberMeta(
 
     internal int Position;
 
-    internal bool MaxDepthReached(string pathStr)
-    {
-        if (MaxDepth == 0)
-            return true;
-
-        var id = $"+{Id}+";
-        int idLength = id.Length, end = pathStr.Length, depth = MaxDepth;
-
-        while (end >= idLength)
-        {
-            if (pathStr[(end - idLength)..end] == id)
-            {
-                if (--depth == 0)
-                    return true;
-
-                end -= idLength;
-            }
-            else
-            {
-                end--;
-            }
-        }
-
-        return false;
-    }
-
     public override string ToString() => 
         $"({(Type?.ToString() ?? "?")}) {(OwningType?.ExportNotNullFullName is { } name ? name+"." : null)}{Name}";
 }

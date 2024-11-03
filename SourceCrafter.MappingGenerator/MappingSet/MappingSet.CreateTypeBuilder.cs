@@ -46,8 +46,8 @@ internal sealed partial class MappingSet
 
         bool
             toSameType = map.AreSameType,
-            hasComplexTTSMembers = false,
-            hasComplexSTTMembers = false,
+            hasComplexTtsMembers = false,
+            hasComplexSttMembers = false,
             isTargetRecursive = false,
             isSourceRecursive = false,
             parentIgnoreTarget = ignore is ApplyOn.Target or ApplyOn.Both,
@@ -83,13 +83,13 @@ internal sealed partial class MappingSet
             isRendered.defaultMethod = true;
 
             if(target.Type.HasReachableZeroArgsCtor)
-                CreateDefaultMethod(code, isTargetRecursive, maxDepth, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
+                CreateDefaultMethod(code, isTargetRecursive, maxDepth, sttTypeStart, sttTypeEnd, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSttMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
                 isRendered.fillMethod = true;
 
-                CreateFillMethod(code, isTargetRecursive, maxDepth, map.TargetType.IsValueType, map.FillTargetMethodName, targetExportFullTypeName, sourceExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
+                CreateFillMethod(code, isTargetRecursive, maxDepth, map.TargetType.IsValueType, map.FillTargetMethodName, targetExportFullTypeName, sourceExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSttMembers);
 
                 foreach (var item in map.TargetType.UnsafePropertyFieldsGetters)
                     item.Render(code);
@@ -99,7 +99,7 @@ internal sealed partial class MappingSet
             {
                 isRendered.tryGetMethod = true;
 
-                CreateTryGetMethod(code, isTargetRecursive, maxDepth, map.TryGetTargetMethodName, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSTTMembers);
+                CreateTryGetMethod(code, isTargetRecursive, maxDepth, map.TryGetTargetMethodName, map.ToTargetMethodName, sourceExportFullTypeName, targetExportFullTypeName, source.DefaultBang, targetMemberMappers, hasComplexSttMembers);
             }
         };
 
@@ -130,13 +130,13 @@ internal sealed partial class MappingSet
             isRendered.defaultMethod = true;
 
             if (source.Type.HasReachableZeroArgsCtor)
-                CreateDefaultMethod(code, isSourceRecursive, source.MaxDepth, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
+                CreateDefaultMethod(code, isSourceRecursive, source.MaxDepth, ttsTypeStart, ttsTypeEnd, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTtsMembers);
 
             if (MappingKind.Fill.HasFlag(map.MappingsKind))
             {
                 isRendered.fillMethod = true;
 
-                CreateFillMethod(code, isSourceRecursive, source.MaxDepth, map.SourceType.IsValueType, map.FillSourceMethodName, sourceExportFullTypeName, targetExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
+                CreateFillMethod(code, isSourceRecursive, source.MaxDepth, map.SourceType.IsValueType, map.FillSourceMethodName, sourceExportFullTypeName, targetExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTtsMembers);
 
                 foreach (var item in map.SourceType.UnsafePropertyFieldsGetters)
                     item.Render(code);
@@ -146,7 +146,7 @@ internal sealed partial class MappingSet
             {
                 isRendered.tryGetMethod = true;
 
-                CreateTryGetMethod(code, isSourceRecursive, source.MaxDepth, map.TryGetSourceMethodName, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTTSMembers);
+                CreateTryGetMethod(code, isSourceRecursive, source.MaxDepth, map.TryGetSourceMethodName, map.ToSourceMethodName, targetExportFullTypeName, sourceExportFullTypeName, target.DefaultBang, sourceMemberMappers, hasComplexTtsMembers);
             }
 
             map.BuildSourceMethod = null;
@@ -180,7 +180,7 @@ internal sealed partial class MappingSet
 
                         map.TargetType.IsRecursive = isTargetRecursive = true;
 
-                        hasComplexSTTMembers = true;
+                        hasComplexSttMembers = true;
                         
                         targetMemberMappers += (code, isFill) =>
                         {
@@ -198,7 +198,7 @@ internal sealed partial class MappingSet
                                 map.SourceHasScalarConversion);
 
                             if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                                map.ExtraMappings += code => nullUnsafeAccesor.Render(code);
                         };
                     }
 
@@ -208,7 +208,7 @@ internal sealed partial class MappingSet
 
                         map.SourceType.IsRecursive = isSourceRecursive = true;
 
-                        hasComplexTTSMembers = true;
+                        hasComplexTtsMembers = true;
 
                         if (sourceMember.IsNullable)
                             map.AddSourceTryGet = true;
@@ -229,7 +229,7 @@ internal sealed partial class MappingSet
                                 map.TargetHasScalarConversion);
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                                map.ExtraMappings += code => nullUnsafeAccesor.Render(code);
                         };
                     }
 
@@ -238,8 +238,8 @@ internal sealed partial class MappingSet
                     break;
                 }
 
-                var memberMap = ParseTypesMap(
-                    GetOrAddMapper(targetMember.Type, sourceMember.Type),
+                var memberMap = DiscoverTypeMaps(
+                    GetOrAdd(targetMember.Type, sourceMember.Type),
                     sourceMember,
                     targetMember,
                     ApplyOn.None,
@@ -258,7 +258,7 @@ internal sealed partial class MappingSet
                         if (sourceMember.IsNullable)
                             memberMap.AddTargetTryGet = true;
 
-                        hasComplexSTTMembers = !memberMap.TargetType.IsPrimitive;
+                        hasComplexSttMembers = !memberMap.TargetType.IsPrimitive;
 
                         map.TargetType.IsRecursive |=
                             isTargetRecursive |=
@@ -281,7 +281,7 @@ internal sealed partial class MappingSet
                                 memberMap.SourceHasScalarConversion);
 
                             if (targetMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                                map.ExtraMappings += code => nullUnsafeAccesor.Render(code);
                         };
                     }
 
@@ -292,7 +292,7 @@ internal sealed partial class MappingSet
                         if (targetMember.IsNullable)
                             memberMap.AddSourceTryGet = true;
 
-                        hasComplexTTSMembers = !memberMap.SourceType.IsPrimitive;
+                        hasComplexTtsMembers = !memberMap.SourceType.IsPrimitive;
 
                         map.SourceType.IsRecursive |=
                             isSourceRecursive |=
@@ -315,7 +315,7 @@ internal sealed partial class MappingSet
                                 memberMap.TargetHasScalarConversion);
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.AuxiliarMappings += code => nullUnsafeAccesor.Render(code);
+                                map.ExtraMappings += code => nullUnsafeAccesor.Render(code);
                         };
                     }
 
@@ -329,7 +329,7 @@ internal sealed partial class MappingSet
                         && (!memberMap.TargetType.IsPrimitive || memberMap.TargetType.IsTupleType
                         || !memberMap.SourceType.IsPrimitive || memberMap.SourceType.IsTupleType))
                     {
-                        map.AuxiliarMappings += memberMap.BuildMethods;
+                        map.ExtraMappings += memberMap.BuildMethods;
                     }
 
                     break;
@@ -495,7 +495,7 @@ internal sealed partial class MappingSet
         {
             if (members is null) return;
 
-            var _ref = (isValueType ? "ref " : null);
+            var @ref = (isValueType ? "ref " : null);
 
             string
                 targetExportFullXmlDocTypeName = targetExportFullTypeName.Replace("<", "{").Replace(">", "}"),
@@ -521,14 +521,14 @@ internal sealed partial class MappingSet
             }
 
             code.Append(@"
-    public static ").Append(_ref).Append(targetFullTypeName).AddSpace().Append(fillMethodName).Append("(").Append(_ref).Append("this ").Append(targetFullTypeName).Append(" target, ").Append(sourceFullTypeName).Append(" source");
+    public static ").Append(@ref).Append(targetFullTypeName).AddSpace().Append(fillMethodName).Append("(").Append(@ref).Append("this ").Append(targetFullTypeName).Append(" target, ").Append(sourceFullTypeName).Append(" source");
 
             if (isRecursive)
             {
                 code.Append(", int depth = 0, int maxDepth = ").Append(maxDepth).Append(@")
     {
         if (depth >= maxDepth) 
-            return ").Append(_ref).Append("target").Append(sourceBang).Append(";");
+            return ").Append(@ref).Append("target").Append(sourceBang).Append(";");
             }
             else
             {
@@ -540,7 +540,7 @@ internal sealed partial class MappingSet
 
             code.Append(@"
 
-        return ").Append(_ref).Append(@"target;
+        return ").Append(@ref).Append(@"target;
     }
 ");
         }

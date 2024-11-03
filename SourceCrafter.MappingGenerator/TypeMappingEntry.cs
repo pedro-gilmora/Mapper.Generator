@@ -9,12 +9,12 @@ namespace SourceCrafter.Bindings;
 
 internal delegate void MethodRenderer(StringBuilder code, ref RenderFlags rendered);
 
-internal struct TypeMappingEntry(uint id, int _next, TypeMapping info)
+internal struct TypeMappingEntry(uint id, int next, TypeMapping info)
 {
     internal readonly uint
         Id = id;
 
-    internal int next = _next;
+    internal int Next = next;
     internal readonly TypeMapping Info = info;
 }
 
@@ -22,9 +22,9 @@ internal struct TypeMappingEntry(uint id, int _next, TypeMapping info)
 internal class TypeMapping
 #pragma warning restore CS8618
 {
-    internal ValueBuilder
-        BuildTargetValue = default!,
-        BuildSourceValue = default!;
+    internal ValueBuilder?
+        BuildTargetValue = default,
+        BuildSourceValue = default;
 
     internal readonly string
         ToTargetMethodName,
@@ -34,22 +34,23 @@ internal class TypeMapping
         FillTargetMethodName,
         FillSourceMethodName;
 
-    internal readonly uint Id;
+    internal readonly int Id;
 
     private bool _rendered = false;
 
-    internal Action<StringBuilder>? AuxiliarMappings;
+    internal Action<StringBuilder>? ExtraMappings;
 
-    internal byte
-        TargetMaxDepth = 2,
-        SourceMaxDepth = 2;
+    // internal byte
+    //     TargetMaxDepth = 2,
+    //     SourceMaxDepth = 2;
+
+    private readonly bool
+        _isScalar;
 
     internal readonly bool
         AreSameType,
-        IsScalar,
-        IsObjectMapping;
-
-    internal readonly bool CanDepth,
+        IsObjectMapping,
+        CanDepth,
         IsTupleFromClass,
         IsReverseTupleFromClass;
 
@@ -60,7 +61,7 @@ internal class TypeMapping
 
     internal CollectionMapping SourceCollectionMap, TargetCollectionMap;
 
-    internal uint ItemMapId;
+    internal int ItemMapId;
 
     internal bool
         AddSourceTryGet,
@@ -71,11 +72,11 @@ internal class TypeMapping
         SourceRequiresMapper,
         IsCollection;
 
-    internal RenderFlags sourceRenderFlags, targetRenderFlags;
+    private RenderFlags _sourceRenderFlags, _targetRenderFlags;
 
 
-    internal bool IsTargetRendered => targetRenderFlags is not (false, false, false, false);
-    internal bool IsSourceRendered => sourceRenderFlags is not (false, false, false, false);
+    internal bool IsTargetRendered => _targetRenderFlags is not (false, false, false, false);
+    internal bool IsSourceRendered => _sourceRenderFlags is not (false, false, false, false);
 
     internal int TargetMemberCount, SourceMemberCount;
 
@@ -117,23 +118,23 @@ internal class TypeMapping
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal string GetMappingHash()
+    internal string GetFileName()
     {
         string source = SourceType.SanitizedName,
             target = TargetType.SanitizedName;
 
         ISymbol sourceContainer = SourceType.Type.ContainingType ?? (ISymbol)SourceType.Type.ContainingNamespace,
-            targetContainer = TargetType.Type.ContainingType ?? (ISymbol)TargetType.Type.ContainingNamespace;
+                targetContainer = TargetType.Type.ContainingType ?? (ISymbol)TargetType.Type.ContainingNamespace;
 
         while (source == target)
         {
-            switch ((sourceContainer, targetContainer))
+            switch (sourceContainer, targetContainer)
             {
                 case (not null or INamespaceSymbol { IsGlobalNamespace: true }, null):
                     return sourceContainer.ToNameOnly() + source + "_" + target;
                 case (null, not null or INamespaceSymbol { IsGlobalNamespace: true }):
                     return source + "_" + targetContainer.ToNameOnly() + target;
-                case ({ }, { }):
+                case (not null, not null):
                     source = sourceContainer.ToNameOnly() + source;
                     target = targetContainer.ToNameOnly() + target;
                     sourceContainer = sourceContainer.ContainingType ?? (ISymbol)sourceContainer.ContainingNamespace;
@@ -141,7 +142,6 @@ internal class TypeMapping
                     continue;
                 default:
                     return source;
-
             }
         }
         return source + "_" + target;
@@ -149,24 +149,24 @@ internal class TypeMapping
 
     internal void BuildMethods(StringBuilder code)
     {
-        if (CanMap is not true || IsScalar && (!TargetType.IsTupleType || !HasTargetToSourceMap) && (!SourceType.IsTupleType || !HasSourceToTargetMap) || _rendered) return;
+        if (CanMap is not true || _isScalar && (!TargetType.IsTupleType || !HasTargetToSourceMap) && (!SourceType.IsTupleType || !HasSourceToTargetMap) || _rendered) return;
 
         _rendered = true;
 
         if (HasSourceToTargetMap)
         {
-            BuildTargetMethod?.Invoke(code, ref targetRenderFlags);
+            BuildTargetMethod?.Invoke(code, ref _targetRenderFlags);
         }
 
         if (!AreSameType && HasTargetToSourceMap)
         {
-            BuildSourceMethod?.Invoke(code, ref sourceRenderFlags);
+            BuildSourceMethod?.Invoke(code, ref _sourceRenderFlags);
         }
 
-        AuxiliarMappings?.Invoke(code);
+        ExtraMappings?.Invoke(code);
     }
 
-    public TypeMapping(uint id, TypeMeta target, TypeMeta source)
+    public TypeMapping(int id, TypeMeta target, TypeMeta source)
     {
         var sameType = target.Id == source.Id;
 
@@ -178,20 +178,20 @@ internal class TypeMapping
             : $"To{source.SanitizedName}";
         TryGetTargetMethodName = sameType
             ? "TryCopy"
-            : $"TryGet";
+            : "TryGet";
         TryGetSourceMethodName = sameType
             ? "TryCopy"
-            : $"TryGet";
+            : "TryGet";
         FillTargetMethodName = sameType
             ? "Update"
-            : $"Fill";
+            : "Fill";
         FillSourceMethodName = sameType
             ? "Update"
-            : $"Fill";
+            : "Fill";
 
         Id = id;
         AreSameType = target.Id == source.Id;
-        IsScalar = target.IsPrimitive && source.IsPrimitive;
+        _isScalar = target.IsPrimitive && source.IsPrimitive;
         CanDepth = !target.IsPrimitive && !source.IsPrimitive
             && (target.Type.TypeKind, source.Type.TypeKind) is not (TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown, TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Delegate or TypeKind.Unknown);
         IsTupleFromClass = target.IsTupleType && source is { IsPrimitive: false, IsIterable: false };
@@ -209,17 +209,22 @@ internal class TypeMapping
 
     private static CollectionMapping BuildCollectionMapping(CollectionInfo source, CollectionInfo target, string copyMethodName, string fillMethodName)
     {
-        bool redim = !source.Countable && target.BackingArray,
-            isDictionary = source.IsDictionary && target.IsDictionary || CanMap(source, target) || CanMap(target, source);
+        var isDictionary = source.IsDictionary && target.IsDictionary || CanMap(source, target) || CanMap(target, source);
 
         var iterator = !isDictionary && source.Indexable && target.BackingArray ? "for" : "foreach";
 
-        return new(isDictionary, target.BackingArray, target.BackingArray && !source.Indexable, iterator, redim, target.Method, copyMethodName, fillMethodName);
+        return new(
+            isDictionary,
+            target.BackingArray,
+            target.BackingArray && !source.Indexable,
+            iterator,
+            !source.Countable && target.BackingArray,
+            target.Method,
+            copyMethodName,
+            fillMethodName);
 
-        static bool CanMap(CollectionInfo source, CollectionInfo target)
-        {
-            return source.IsDictionary && target.ItemDataType.Type is INamedTypeSymbol { IsTupleType: true, TupleElements.Length: 2 };
-        }
+        static bool CanMap(CollectionInfo source, CollectionInfo target) => 
+            source.IsDictionary && target.ItemDataType.Type is INamedTypeSymbol { IsTupleType: true, TupleElements.Length: 2 };
     }
 }
 
@@ -228,7 +233,6 @@ internal readonly record struct CollectionInfo(
     EnumerableType Type,
     bool IsItemNullable,
     bool Indexable,
-    bool ReadOnly,
     bool Countable,
     bool BackingArray,
     string? Method,

@@ -26,8 +26,8 @@ namespace SourceCrafter.Bindings.Attributes
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
     public sealed class ExtendAttribute<T>(string ignore = "") : Attribute where T : Enum;
 
-    public interface IImplement<IInterface, IImplementation>
-        where IImplementation : class, IInterface; 
+    public interface IImplement<TInterface, TImplementation>
+        where TImplementation : class, TInterface; 
     
 #pragma warning restore CS9113 // Parameter is unread.
 }

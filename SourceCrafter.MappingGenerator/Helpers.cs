@@ -10,16 +10,16 @@ using Microsoft.CodeAnalysis;
 [assembly: InternalsVisibleTo("SourceCrafter.Bindings.UnitTests")]
 namespace SourceCrafter.Bindings.Helpers
 {
-    public interface IEnum<T> where T : Enum;
-
     public static class Extensions
     {
         private static readonly SymbolDisplayFormat
             GlobalizedNamespace = new(
                 globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Included,
                 typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
-                genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeVariance,
-                miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier),
+                genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters 
+                                 | SymbolDisplayGenericsOptions.IncludeVariance,
+                miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes 
+                                      | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier),
             GlobalizedNonGenericNamespace = new(
                 globalNamespaceStyle: SymbolDisplayGlobalNamespaceStyle.Included,
                 typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypesAndNamespaces,
@@ -27,8 +27,10 @@ namespace SourceCrafter.Bindings.Helpers
             SymbolNameOnly = new(typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameOnly),
             TypeNameFormat = new(
                 typeQualificationStyle: SymbolDisplayTypeQualificationStyle.NameAndContainingTypes,
-                genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters | SymbolDisplayGenericsOptions.IncludeVariance,
-                miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
+                genericsOptions: SymbolDisplayGenericsOptions.IncludeTypeParameters 
+                                 | SymbolDisplayGenericsOptions.IncludeVariance,
+                miscellaneousOptions: SymbolDisplayMiscellaneousOptions.UseSpecialTypes 
+                                      | SymbolDisplayMiscellaneousOptions.IncludeNullableReferenceTypeModifier);
 
         internal static string ToGlobalNamespaced(this ISymbol t) => t.ToDisplayString(GlobalizedNamespace);
         
@@ -133,16 +135,6 @@ namespace SourceCrafter.Bindings.Helpers
     }
 
 
-}
-
-
-namespace SourceCrafter.Bindings
-{
-    public static class CollectionExtensions<T>
-    {
-        public static Collection<T> EmptyCollection => [];
-        public static ReadOnlyCollection<T> EmptyReadOnlyCollection => new([]);
-    }
 }
 
 #if NETSTANDARD2_0 || NETSTANDARD2_1 || NETCOREAPP2_0 || NETCOREAPP2_1 || NETCOREAPP2_2 || NETCOREAPP3_0 || NETCOREAPP3_1 || NET45 || NET451 || NET452 || NET6 || NET461 || NET462 || NET47 || NET471 || NET472 || NET48

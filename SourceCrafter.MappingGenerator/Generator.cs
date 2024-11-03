@@ -60,14 +60,21 @@ public class Generator : IIncrementalGenerator
             context.RegisterSourceOutput(context.CompilationProvider.Combine(d), (ctx, info)
                 =>
             {
-                var (compilation, (enums, (enums2, (attrs, classes)))) = info;
-
-                ProcessPosibleMappers(
-                    ctx,
-                    compilation,
-                    enums.Concat(enums2).Distinct(SymbolEqualityComparer.Default).Cast<ITypeSymbol>().ToImmutableArray(),
-                    attrs,
-                    classes);
+                var (compilation, (enums, (enums2, (assembly, classes)))) = info;
+                try
+                {
+                    BuildCode(
+                        ctx.AddSource,
+                        compilation,
+                        enums.Concat(enums2).Distinct(SymbolEqualityComparer.Default).Cast<ITypeSymbol>().ToImmutableArray(),
+                        classes,
+                        assembly);
+                }
+                catch (Exception e)
+                {
+                    if (Debugger.IsAttached && Debugger.IsLogging())
+                        Debugger.Log(0, "SGExceptions", "[SouceCrafter.Bindings]: Error attempting to generate mappings and enum extensions:\n" + e.ToString());
+                }
             });
 
         }
@@ -77,17 +84,8 @@ public class Generator : IIncrementalGenerator
         }
     }
 
-    private void ProcessPosibleMappers(SourceProductionContext ctx, Compilation compilation, ImmutableArray<ITypeSymbol> enums, ImmutableArray<MapInfo> OverClass, ImmutableArray<MapInfo> Assembly)
+    private void ProcessPosibleMappers(SourceProductionContext ctx, Compilation compilation, ImmutableArray<ITypeSymbol> enums, ImmutableArray<MapInfo> overClass, ImmutableArray<MapInfo> assembly)
     {
-        try
-        {
-            BuildCode(ctx.AddSource, compilation, enums, OverClass, Assembly);
-        }
-        catch (Exception e)
-        {
-            if (Debugger.IsAttached && Debugger.IsLogging())
-                Debugger.Log(0, "SGExceptions", "[SouceCrafter.Bindings]: Error attempting to generate mappings and enum extensions:\n" + e.ToString());
-        }
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -103,8 +101,6 @@ public class Generator : IIncrementalGenerator
         SortedSet<string> enumPropertyNameSet = new(StringComparer.OrdinalIgnoreCase);
 
         var set = new MappingSet(compilation, typeSet);
-
-        set.Initialize(0);
 
         var generatedLock = false;
 
@@ -149,11 +145,11 @@ public static partial class EnumExtensions
 
         foreach (var gctx in assembliesLevel)
             if (gctx.Generate)
-                set.AddMapper(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
+                set.TryAdd(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
 
         foreach (var gctx in classesLevel)
             if (gctx.Generate)
-                set.AddMapper(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
+                set.TryAdd(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
     }
 
     private string BuildProperty(TypeMeta type, SortedSet<string> enumPropertyNameSet)

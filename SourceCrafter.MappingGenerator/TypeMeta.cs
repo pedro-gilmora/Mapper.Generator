@@ -66,9 +66,15 @@ internal sealed class TypeMeta
 
     internal Span<MemberMeta> Members => _members ??= _getMembers();
 
-    internal TypeMeta(TypeSet typeSet, Compilation compilation, TypeImplInfo typeMapInfo, int typeId, bool dictionaryOwned)
+    internal TypeMeta(
+        TypeSet typeSet,
+        Compilation compilation,
+        ITypeSymbol membersSource,
+        ITypeSymbol? implementation,
+        int typeId,
+        bool dictionaryOwned)
     {
-        var type = typeMapInfo.Implementation ?? typeMapInfo.MembersSource;
+        var type = implementation ?? membersSource;
         _typeSet = typeSet;
         _compilation = compilation;
 
@@ -78,14 +84,14 @@ internal sealed class TypeMeta
 
         type.TryGetNullable(out type, out var isNullable);
 
-        var precedingNamespace = typeMapInfo.Implementation?.ContainingNamespace?.ToString() == "<global namespace>"
-            ? typeMapInfo.MembersSource.ContainingNamespace.ToGlobalNamespaced() + "."
+        var precedingNamespace = implementation?.ContainingNamespace?.ToString() == "<global namespace>"
+            ? membersSource.ContainingNamespace.ToGlobalNamespaced() + "."
             : null;
 
         NotNullFullName = precedingNamespace + type.ToGlobalNamespaced();
         FullName = NotNullFullName;
 
-        ExportFullName = ExportNotNullFullName = typeMapInfo.MembersSource.AsNonNullable() is { } memSource
+        ExportFullName = ExportNotNullFullName = membersSource.AsNonNullable() is { } memSource
             ? memSource.ToGlobalNamespaced().TrimEnd('?')
             : FullName;
 
@@ -113,73 +119,72 @@ internal sealed class TypeMeta
             (type is INamedTypeSymbol { InstanceConstructors: { Length: > 0 } ctors }
              && ctors.FirstOrDefault(ctor => ctor.Parameters.IsDefaultOrEmpty)?
                     .DeclaredAccessibility is null or Accessibility.Public or Accessibility.Internal)
-            || typeMapInfo.Implementation?.Kind is SymbolKind.ErrorType;
+            || implementation?.Kind is SymbolKind.ErrorType;
 
         Type = type;
 
         IsIterable = IsEnumerableType(_nonGenericFullName, type, out CollectionInfo);
 
         _getMembers = IsTupleType
-            ? () => GetAllMembers(((INamedTypeSymbol)typeMapInfo.MembersSource!.AsNonNullable()).TupleElements)
-            : () => GetAllMembers(typeMapInfo.MembersSource!.AsNonNullable());
+            ? () => GetAllMembers(((INamedTypeSymbol)membersSource!.AsNonNullable()).TupleElements)
+            : () => GetAllMembers(membersSource!.AsNonNullable());
     }
 
     internal bool HasConversionTo(TypeMeta target, out ScalarConversion toTarget, out ScalarConversion toSource)
     {
-        var hasConversionResult = hasConversion(this, target, out toTarget);
+        var hasConversionResult = HasConversion(this, target, out toTarget);
 
         if (target.Id == Id) {
             toSource = toTarget;
             return hasConversionResult;
         }
 
-        return hasConversionResult | hasConversion(target, this, out toSource);
+        return hasConversionResult | HasConversion(target, this, out toSource);
+    }
 
-        bool hasConversion(TypeMeta source, TypeMeta target, out ScalarConversion info)
+    private bool HasConversion(TypeMeta source, TypeMeta target, out ScalarConversion info)
+    {
+        if ((source, target) is not (
+            ({ IsTupleType: false }, { IsTupleType: false }) and
+            ({ DictionaryOwned: false, IsKeyValueType: false }, { DictionaryOwned: false, IsKeyValueType: false })))
         {
-            if ((source, target) is not (
-                ({ IsTupleType: false }, { IsTupleType: false }) and
-                ({ DictionaryOwned: false, IsKeyValueType: false }, { DictionaryOwned: false, IsKeyValueType: false })
-            ))
-            {
-                info = default;
-                return false;
-            }
-
-            ITypeSymbol 
-                targetTypeSymbol = target.Type.AsNonNullable(),
-                sourceTypeSymbol = source.Type;
-
-            var conversion = _compilation.ClassifyConversion(sourceTypeSymbol, targetTypeSymbol);
-
-            info = (conversion.Exists && (source.IsValueType || source.FullName == "string" || source.IsObject), conversion.IsExplicit);
-
-            if (!info.exists)
-            {
-                if (!info.isExplicit)
-                {
-                    info.exists = info.isExplicit = sourceTypeSymbol
-                        .GetMembers()
-                        .Any(m => m is IMethodSymbol
-                            {
-                                MethodKind: MethodKind.Conversion,
-                                Parameters: [{ Type: { } firstParam }],
-                                ReturnType: { } returnType
-                            }
-                            && MappingSet.AreTypeEquals(returnType, sourceTypeSymbol)
-                            && MappingSet.AreTypeEquals(firstParam, targetTypeSymbol)
-                        );
-                }
-                else if (source.IsInterface && sourceTypeSymbol.AllInterfaces.FirstOrDefault(target.Equals) is { } impl)
-                {
-                    info.exists = !(info.isExplicit = false);
-                }
-            }
-
-            info.exists |= info.isExplicit |= source.IsObject && !target.IsObject;
-
-            return info.exists;
+            info = default;
+            return false;
         }
+
+        ITypeSymbol 
+            targetTypeSymbol = target.Type.AsNonNullable(),
+            sourceTypeSymbol = source.Type;
+
+        var conversion = _compilation.ClassifyConversion(sourceTypeSymbol, targetTypeSymbol);
+
+        info = (conversion.Exists && (source.IsValueType || source.FullName == "string" || source.IsObject), conversion.IsExplicit);
+
+        if (!info.exists)
+        {
+            if (!info.isExplicit)
+            {
+                info.exists = info.isExplicit = sourceTypeSymbol
+                    .GetMembers()
+                    .Any(m => m is IMethodSymbol
+                              {
+                                  MethodKind: MethodKind.Conversion,
+                                  Parameters: [{ Type: { } firstParam }],
+                                  ReturnType: { } returnType
+                              }
+                              && SymbolEqualityComparer.Default.Equals(returnType, sourceTypeSymbol)
+                              && SymbolEqualityComparer.Default.Equals(firstParam, targetTypeSymbol)
+                    );
+            }
+            else if (source.IsInterface && sourceTypeSymbol.AllInterfaces.FirstOrDefault(target.Equals) is { } impl)
+            {
+                info.exists = !(info.isExplicit = false);
+            }
+        }
+
+        info.exists |= info.isExplicit |= source.IsObject && !target.IsObject;
+
+        return info.exists;
     }
 
 
@@ -195,24 +200,24 @@ internal sealed class TypeMeta
 
         return [.. members.OrderBy(m => m.Position)];
 
-        void GetMembers(ITypeSymbol type, bool isFirstLevel = true)
+        void GetMembers(ITypeSymbol typeToCheck, bool isFirstLevel = true)
         {
-            if (type?.Name is not (null or "Object"))
+            if (typeToCheck.Name is not (null or "Object"))
             {
                 var i = 0;
-                foreach (var member in type!.GetMembers())
+                foreach (var member in typeToCheck!.GetMembers())
                 {
                     if (member is IFieldSymbol { AssociatedSymbol: IPropertySymbol s })
                     {
-                        ids.Add(MappingSet.Comparer.GetHashCode(s));
+                        ids.Add(SymbolEqualityComparer.Default.GetHashCode(s));
                         continue;
                     }
 
-                    if (member.DeclaredAccessibility is not (Accessibility.Internal or Accessibility.Friend or Accessibility.Public))
+                    if (member.DeclaredAccessibility is not (Accessibility.Internal or Accessibility.Public))
                         continue;
 
                     var isAccessible = member.DeclaredAccessibility is Accessibility.Public ||
-                            MappingSet.Comparer.Equals(_compilation.SourceModule, member.ContainingModule);
+                            SymbolEqualityComparer.Default.Equals(_compilation.SourceModule, member.ContainingModule);
 
 
                     switch (member)
@@ -229,7 +234,7 @@ internal sealed class TypeMeta
                             IsWriteOnly: var isWriteOnly,
                             SetMethod: var setMethod
                         } when isInterface || !impl:
-                            var id = MappingSet.Comparer.GetHashCode(member);
+                            var id = SymbolEqualityComparer.Default.GetHashCode(member);
 
                             members.Add(
                                 new(id,
@@ -256,12 +261,11 @@ internal sealed class TypeMeta
                             ContainingType.Name: not ['I', 'E', 'n', 'u', 'm', 'e', 'r', 'a', 't', 'o', 'r', ..],
                             Type: { } memberType,
                             IsStatic: false,
-                            AssociatedSymbol: var associated,
                             IsReadOnly: var isReadonly,
 
                         }:
                             members.Add(
-                                new(MappingSet.Comparer.GetHashCode(member),
+                                new(SymbolEqualityComparer.Default.GetHashCode(member),
                                     member.ToNameOnly(),
                                     memberType.IsNullable(),
                                     true,
@@ -282,12 +286,12 @@ internal sealed class TypeMeta
                     }
                 }
 
-                if(type.BaseType != null)
-                    GetMembers(type.BaseType);
+                if(typeToCheck.BaseType != null)
+                    GetMembers(typeToCheck.BaseType);
 
                 if (!isFirstLevel) return;
             
-                foreach (var iface in type.AllInterfaces)
+                foreach (var iface in typeToCheck.AllInterfaces)
                     GetMembers(iface, false);
             }
         }
@@ -301,7 +305,7 @@ internal sealed class TypeMeta
 
         foreach (var member in tupleFields)
             members.Add(
-                new(MappingSet.Comparer.GetHashCode(member),
+                new(SymbolEqualityComparer.Default.GetHashCode(member),
                     member.ToNameOnly(),
                     member.Type.IsNullable(),
                     false,
@@ -315,7 +319,7 @@ internal sealed class TypeMeta
         return [.. members];
     }
 
-    internal bool Equals(TypeMeta obj) => MappingSet.Comparer.Equals(Type, obj.Type);
+    internal bool Equals(TypeMeta obj) => SymbolEqualityComparer.Default.Equals(Type, obj.Type);
 
     public override string ToString() => FullName;
 
@@ -519,7 +523,7 @@ internal sealed class TypeMeta
             ")
             .Append(name)
             .Append(@"
-            default: return throwOnNotFound ? value.ToString() : throw new global::System.Exception(""The value is not a valid identifier for type [")
+            default: return throwOnNotFound ? value.ToString() : throw new global::System.Exception(""The value is not a valid field name for enum [")
             .Append(NotNullFullName)
             .Append(@"]""); 
         }
@@ -534,7 +538,7 @@ internal sealed class TypeMeta
             ")
             .Append(description)
             .Append(@"
-            default: return throwOnNotFound ? value.ToString() : throw new global::System.Exception(""The value has no description""); 
+            default: return throwOnNotFound ? throw new global::System.Exception(""The value has no description"") : value.ToString(); 
         }
     }
 
@@ -607,17 +611,17 @@ internal sealed class TypeMeta
         }
     }");
 
-        string MemberFullName(IFieldSymbol m) => NotNullFullName + "." + m.Name;
+        string MemberFullName(ISymbol m) => NotNullFullName + "." + m.Name;
     }
 
-    internal void BuildKeyValuePair(StringBuilder sb, string _params)
+    internal void BuildKeyValuePair(StringBuilder sb, string @params)
     {
-        sb.AppendFormat("new {0}({1})", _nonGenericFullName, _params);
+        sb.AppendFormat("new {0}({1})", _nonGenericFullName, @params);
     }
 
-    internal void BuildTuple(StringBuilder sb, string _params)
+    internal void BuildTuple(StringBuilder sb, string @params)
     {
-        sb.AppendFormat("({0})", _params);
+        sb.AppendFormat("({0})", @params);
     }
 
     internal void BuildType(StringBuilder sb, string props)
@@ -627,7 +631,7 @@ internal sealed class TypeMeta
         }}", NotNullFullName, props);
     }
 
-    private string GetEnumDescription(IFieldSymbol m) => $@"""{m
+    private static string GetEnumDescription(ISymbol m) => $@"""{m
         .GetAttributes()
         .FirstOrDefault(a => a.AttributeClass?.ToGlobalNamespaced() is "global::System.ComponentModel.DescriptionAttribute")
         ?.ConstructorArguments.FirstOrDefault().Value?.ToString() ?? m.Name.Wordify()}""";
@@ -751,7 +755,6 @@ internal sealed class TypeMeta
                     typeSymbol.IsNullable(), 
                     true, 
                     true, 
-                    true, 
                     false, 
                     "Add", 
                     "Count"),
@@ -760,7 +763,6 @@ internal sealed class TypeMeta
                     enumerableType,
                     typeSymbol.IsNullable(),
                     false,
-                    true,
                     true,
                     false,
                     "Enqueue",
@@ -771,7 +773,6 @@ internal sealed class TypeMeta
                     typeSymbol.IsNullable(),
                     false,
                     true,
-                    true,
                     false,
                     "Push",
                     "Count"),
@@ -780,7 +781,6 @@ internal sealed class TypeMeta
                     enumerableType,
                     typeSymbol.IsNullable(),
                     false,
-                    true,
                     false,
                     true,
                     null,
@@ -789,7 +789,6 @@ internal sealed class TypeMeta
                 new(itemDataType,
                     enumerableType,
                     typeSymbol.IsNullable(),
-                    true,
                     true,
                     true,
                     false,
@@ -802,7 +801,6 @@ internal sealed class TypeMeta
                     true,
                     true,
                     true,
-                    true,
                     null,
                     "Length"),
             EnumerableType.Collection =>
@@ -810,7 +808,6 @@ internal sealed class TypeMeta
                     enumerableType,
                     typeSymbol.IsNullable(),
                     true,
-                    false,
                     true,
                     false,
                     "Add",
@@ -820,7 +817,6 @@ internal sealed class TypeMeta
                     enumerableType,
                     typeSymbol.IsNullable(),
                     true,
-                    false,
                     true,
                     true,
                     null,
@@ -830,7 +826,6 @@ internal sealed class TypeMeta
                     enumerableType,
                     typeSymbol.IsNullable(),
                     true,
-                    false,
                     true,
                     true,
                     null,
