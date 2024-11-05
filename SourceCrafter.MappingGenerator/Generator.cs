@@ -41,7 +41,7 @@ public class Generator : IIncrementalGenerator
                                             (ITypeSymbol)targetSymbol,
                                             target,
                                             (MappingKind)mapKind,
-                                            (ApplyOn)ignore)
+                                            (IgnoreBind)ignore)
                                     : default)
                         .Combine(
                             FindMapperAttributes(
@@ -54,7 +54,7 @@ public class Generator : IIncrementalGenerator
                                             target,
                                             source,
                                             (MappingKind)mapKind,
-                                            (ApplyOn)ignore)
+                                            (IgnoreBind)ignore)
                                         : default))));
 
             context.RegisterSourceOutput(context.CompilationProvider.Combine(d), (ctx, info)

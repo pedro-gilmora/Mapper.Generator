@@ -30,7 +30,7 @@ public partial class User : IUserPerson2, IContactableUser //: IUser
     public DateTime DateOfBirth { get; set; }
     [Bind(nameof(UserDto.TotalAmount))]
     public double? Balance { get; set; }
-    [Max(2)]
+    [MaxRecursion(2)]
     //public IEnumerable<User> Asignees { get; set; } = [];
     public Role MainRole { get; set; }
     public User? Supervisor { get; init; }

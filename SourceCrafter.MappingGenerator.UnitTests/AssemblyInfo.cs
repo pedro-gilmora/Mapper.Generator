@@ -1,4 +1,5 @@
-﻿using SourceCrafter.Bindings.Attributes;
+﻿using SourceCrafter.Bindings;
+using SourceCrafter.Bindings.Attributes;
 using SourceCrafter.Bindings.UnitTests;
 using SourceCrafter.UnitTests;
 

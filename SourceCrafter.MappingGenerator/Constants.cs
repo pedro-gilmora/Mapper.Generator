@@ -2,7 +2,7 @@
 
 namespace SourceCrafter.Bindings.Constants;
 
-public enum ApplyOn { None, Source, Target, Both }
+public enum IgnoreBind { None, Source, Target, Both }
 
 internal enum EnumerableType { Queue, Stack, Enumerable, ReadOnlyCollection, ReadOnlySpan, Collection, Array, Span, Dictionary }
 

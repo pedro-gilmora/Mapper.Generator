@@ -13,7 +13,7 @@ internal sealed partial class MappingSet
         TypeMapping map,
         MemberMeta source,
         MemberMeta target,
-        ApplyOn ignore,
+        IgnoreBind ignore,
         string sourceMappingPath,
         string targetMappingPath)
     {
@@ -27,9 +27,7 @@ internal sealed partial class MappingSet
                 map.TargetType.IsRecursive = IsRecursive(targetMappingPath + map.TargetType.Id + "+", map.TargetType.Id);
 
             if (map.SourceType is { IsRecursive: false, IsStruct: false, IsPrimitive: false })
-                map.SourceType.IsRecursive = map.AreSameType
-                    ? map.TargetType.IsRecursive
-                    : IsRecursive(sourceMappingPath + map.SourceType.Id + "+", map.SourceType.Id);
+                map.SourceType.IsRecursive = (map.AreSameType && map.TargetType.IsRecursive) || IsRecursive(sourceMappingPath + map.SourceType.Id + "+", map.SourceType.Id);
 
             return map;
         }
@@ -40,38 +38,30 @@ internal sealed partial class MappingSet
                 targetItem = new(target.Id, target.Name + "Item", target.Type.CollectionInfo.IsItemNullable),
                 sourceItem = new(source.Id, source.Name + "Item", source.Type.CollectionInfo.IsItemNullable);
 
-            var itemMap = GetOrAdd(target.Type.CollectionInfo.ItemDataType, source.Type.CollectionInfo.ItemDataType);
-
-            map.ItemMapId = itemMap.Id;
-
-            itemMap.TargetType.IsRecursive |= itemMap.TargetType.IsRecursive;
-            itemMap.SourceType.IsRecursive |= itemMap.SourceType.IsRecursive;
-
-            if (targetItem.IsNullable)
-                itemMap.AddSourceTryGet = true;
-
-            if (sourceItem.IsNullable)
-                itemMap.AddTargetTryGet = true;
-
-            if (itemMap.CanMap is false ||
-                !(source.Type.CollectionInfo.ItemDataType.HasReachableZeroArgsCtor && target.Type.CollectionInfo.ItemDataType.HasReachableZeroArgsCtor))
+            if (map.ItemMap.CanMap is false || !(source.Type.CollectionInfo.ItemDataType.HasZeroArgsCtor && target.Type.CollectionInfo.ItemDataType.HasZeroArgsCtor))
             {
                 map.CanMap = map.IsCollection = false;
 
                 return map;
             }
 
-            itemMap = DiscoverTypeMaps(
-                itemMap,
+            if (targetItem.IsNullable)
+                map.ItemMap.AddSourceTryGet = true;
+
+            if (sourceItem.IsNullable)
+                map.ItemMap.AddTargetTryGet = true;
+
+            var itemMap = DiscoverTypeMaps(
+                map.ItemMap,
                 sourceItem,
                 targetItem,
-                ApplyOn.None,
+                IgnoreBind.None,
                 sourceMappingPath,
                 targetMappingPath);
 
-            if (itemMap.CanMap is true && map.CanMap is null && true ==
+            if (map.CanMap is null && true ==
                 (map.CanMap =
-                    ignore is not (ApplyOn.Target or ApplyOn.Both) &&
+                    ignore is not (IgnoreBind.Target or IgnoreBind.Both) &&
                     (!itemMap.TargetType.IsInterface && (map.TargetRequiresMapper = CreateCollectionMapBuilders(
                         source,
                         target,
@@ -86,7 +76,7 @@ internal sealed partial class MappingSet
                         ref map.BuildTargetValue,
                         ref map.BuildTargetMethod)))
                     |
-                    (ignore is not (ApplyOn.Source or ApplyOn.Both) &&
+                    (ignore is not (IgnoreBind.Source or IgnoreBind.Both) &&
                     !itemMap.SourceType.IsInterface && (map.SourceRequiresMapper = CreateCollectionMapBuilders(
                         target,
                         source,
@@ -116,18 +106,16 @@ internal sealed partial class MappingSet
 
         if (map.SourceType.HasConversionTo(map.TargetType, out var targetScalarConversion, out var sourceScalarConversion))
         {
-            if (ignore is not ApplyOn.Target or ApplyOn.Both && targetScalarConversion.exists)
+            if (ignore is not IgnoreBind.Target or IgnoreBind.Both && targetScalarConversion.exists)
             {
-                var scalar = targetScalarConversion.isExplicit
-                    ? $"({map.TargetType.FullName}){{0}}"
-                    : "{0}";
+                var scalar = targetScalarConversion.isExplicit ? $"({map.TargetType.FullName}){{0}}" : "{0}";
 
                 map.BuildTargetValue = (code, value) => code.AppendFormat(scalar, value);
 
                 canMap = map.TargetHasScalarConversion = true;
             }
 
-            if (ignore is not ApplyOn.Source or ApplyOn.Both && sourceScalarConversion.exists)
+            if (ignore is not IgnoreBind.Source or IgnoreBind.Both && sourceScalarConversion.exists)
             {
                 var scalar = sourceScalarConversion.isExplicit
                     ? $@"({map.SourceType.FullName}){{0}}"
@@ -211,29 +199,66 @@ internal sealed partial class MappingSet
                 keyMapping = GetOrAdd(sourceKeyType, targetKeyType),
                 valueMapping = GetOrAdd(sourceValueType, targetValueType);
 
-            keyMapping = DiscoverTypeMaps(keyMapping, sourceValueMember, sourceKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
-            valueMapping = DiscoverTypeMaps(valueMapping, targetValueMember, targetKeyMember, ApplyOn.None, sourceMappingPath, targetMappingPath);
+            keyMapping = DiscoverTypeMaps(keyMapping, sourceValueMember, sourceKeyMember, IgnoreBind.None, sourceMappingPath, targetMappingPath);
+            valueMapping = DiscoverTypeMaps(valueMapping, targetValueMember, targetKeyMember, IgnoreBind.None, sourceMappingPath, targetMappingPath);
 
             if (keyMapping.CanMap is false && valueMapping.CanMap is false) map.CanMap = false;
 
-            var checkKeyPropNull = (!sourceKeyMember.IsNullable || !sourceKeyMember.Type.IsStruct) && sourceValueMember.IsNullable;
-            var checkValuePropNull = (!targetKeyMember.IsNullable || !targetKeyMember.Type.IsStruct) && targetValueMember.IsNullable;
+            var (checkKeyPropNull, checkValuePropNull, checkKeyFieldNull, checkValueFieldNull) = 
+            (
+                !(sourceKeyMember.IsNullable && sourceKeyMember.Type.IsStruct || !sourceValueMember.IsNullable), 
+                !(targetKeyMember.IsNullable && targetKeyMember.Type.IsStruct || !targetValueMember.IsNullable),
+                !(sourceValueMember.IsNullable && sourceValueMember.Type.IsStruct || !sourceKeyMember.IsNullable),
+                !(targetValueMember.IsNullable && targetValueMember.Type.IsStruct || !targetKeyMember.IsNullable)
+            );
 
-            var checkKeyFieldNull = (!sourceValueMember.IsNullable || !sourceValueMember.Type.IsStruct) && sourceKeyMember.IsNullable;
-            var checkValueFieldNull = (!targetValueMember.IsNullable || !targetValueMember.Type.IsStruct) && targetKeyMember.IsNullable;
-
-            string keyPropName = sourceKeyMember.Name,
-                valuePropName = targetKeyMember.Name,
-                targetKeyFieldName = sourceValueMember.Name,
-                targetValueFieldName = targetValueMember.Name;
+            var (keyPropName, valuePropName, targetKeyFieldName, targetValueFieldName) = 
+            (
+                 sourceKeyMember.Name, 
+                 targetKeyMember.Name, 
+                 sourceValueMember.Name, 
+                 targetValueMember.Name
+            );
 
             KeyValueMappings
                 stt = map.TargetKeyValueMap = new(
-                    (code, id) => GenerateValue(code, id + "." + targetKeyMember.Name, keyMapping.BuildTargetValue, checkKeyFieldNull, false, targetKeyMember.Type.IsValueType, sourceKeyMember.Bang, sourceKeyMember.DefaultBang),
-                    (code, id) => GenerateValue(code, id + "." + targetValueMember.Name, valueMapping.BuildTargetValue, checkValueFieldNull, false, targetValueMember.Type.IsValueType, targetKeyMember.Bang, targetKeyMember.DefaultBang)),
+                    (code, id) => GenerateValue(
+                        code,
+                        id + "." + targetKeyMember.Name,
+                        keyMapping.BuildTargetValue,
+                        checkKeyFieldNull,
+                        false,
+                        targetKeyMember.Type.IsValueType,
+                        sourceKeyMember.Bang,
+                        sourceKeyMember.DefaultBang),
+                    (code, id) => GenerateValue(
+                        code,
+                        id + "." + targetValueMember.Name,
+                        valueMapping.BuildTargetValue,
+                        checkValueFieldNull,
+                        false,
+                        targetValueMember.Type.IsValueType,
+                        targetKeyMember.Bang,
+                        targetKeyMember.DefaultBang)),
                 tts = map.SourceKeyValueMap = new(
-                    (code, id) => GenerateValue(code, id + "." + sourceKeyMember.Name, keyMapping.BuildSourceValue, checkKeyPropNull, false, sourceKeyMember.Type.IsValueType, sourceValueMember.Bang, sourceValueMember.DefaultBang),
-                    (code, id) => GenerateValue(code, id + "." + sourceValueMember.Name, valueMapping.BuildSourceValue, checkValuePropNull, false, sourceValueMember.Type.IsValueType, targetValueMember.Bang, targetValueMember.DefaultBang));
+                    (code, id) => GenerateValue(
+                        code,
+                        id + "." + sourceKeyMember.Name,
+                        keyMapping.BuildSourceValue,
+                        checkKeyPropNull,
+                        false,
+                        sourceKeyMember.Type.IsValueType,
+                        sourceValueMember.Bang,
+                        sourceValueMember.DefaultBang),
+                    (code, id) => GenerateValue(
+                        code,
+                        id + "." + sourceValueMember.Name,
+                        valueMapping.BuildSourceValue,
+                        checkValuePropNull,
+                        false,
+                        sourceValueMember.Type.IsValueType,
+                        targetValueMember.Bang,
+                        targetValueMember.DefaultBang));
 
             var buildTargetValue = map.BuildTargetValue = (code, sb) =>
             {

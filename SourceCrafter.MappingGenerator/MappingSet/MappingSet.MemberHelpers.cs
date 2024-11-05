@@ -17,7 +17,7 @@ internal sealed partial class MappingSet
         bool isFill,
         ref string? comma,
         string spacing,
-        ValueBuilder generateSourceValue,
+        ValueBuilder? generateSourceValue,
         MemberMeta source,
         MemberMeta target,
         string copyTargetMethodName,
@@ -48,10 +48,10 @@ internal sealed partial class MappingSet
                 useNullUnsafeWriter = isValueType && target.IsNullable;
 
             var targetMemberName = target.Name;
-            
+
             if (useUnsafeWriter)
             {
-                string 
+                string
                     getPrivFieldMethodName = $"Get{target.OwningType!.SanitizedName}{targetMemberName}",
                     targetOwnerXmlDocType = target.OwningType.NotNullFullName.Replace("<", "{").Replace(">", "}");
 
@@ -83,16 +83,26 @@ internal sealed partial class MappingSet
                                 code.Append("ref ");
                             }
 
-                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append("!, ").Append(BuildSourceParam(fill: true)).Append(")");
+                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append("!, ");
+
+                            BuildSourceParam(fill: true);
+
+                            code.Append(")");
                         }
                         else
                         {
-                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ").Append(BuildSourceParam());
+                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ");
+
+                            BuildSourceParam();
                         }
 
                         code.Append(@";
             else
-                ").Append(targetValue).Append(" = ").Append(BuildSourceParam()).Append(@";
+                ").Append(targetValue).Append(" = "); 
+                        
+                        BuildSourceParam(); 
+                        
+                        code.Append(@";
         else
             ").Append(targetValue).Append(" = default").Append(source.DefaultBang).Append(';');
                     }
@@ -107,16 +117,19 @@ internal sealed partial class MappingSet
                         {
                             code.Append(fillTargetMethodName).Append("(");
 
-                            if (isValueType)
-                            {
-                                code.Append("ref ");
-                            }
+                            if (isValueType) code.Append("ref ");
 
-                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(", ").Append(BuildSourceParam(fill: true)).Append(")");
+                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(", ");
+
+                            BuildSourceParam(fill: true);
+                                
+                            code.Append(")");
                         }
                         else
                         {
-                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ").Append(BuildSourceParam());
+                            code.CaptureGeneratedString(() => BuildTargetValue(code), out targetValue).Append(" = ");
+                            
+                            BuildSourceParam();
                         }
 
                         code.Append(@";
@@ -138,12 +151,16 @@ internal sealed partial class MappingSet
                             code.Append("ref ");
                         }
 
-                        code.CaptureGeneratedString(() => BuildTargetValue(code), out _).Append(", ").Append(BuildSourceParam(fill: true)).Append(")");
+                        code.CaptureGeneratedString(() => BuildTargetValue(code), out _).Append(", ");
+
+                        BuildSourceParam(fill: true);
+
+                        code.Append(")");
                     }
                     else
                     {
                         code.CaptureGeneratedString(() => BuildTargetValue(code), out _).Append(" = ");
-                        
+
                         BuildValue();
                     }
 
@@ -169,35 +186,37 @@ internal sealed partial class MappingSet
                     }
                 }
             }
-            else if(target is { IsProperty: true, IsInit: false, IsReadOnly: false} or { OwningType.IsTupleType: true })
+            else if (target is { IsProperty: true, IsInit: false, IsReadOnly: false } or { OwningType.IsTupleType: true })
             {
                 code.Append(@"
         target.").Append(targetMemberName).Append(" = ");
 
                 BuildValue();
-                
+
                 code.Append(';');
             }
 
-            string BuildSourceParam(string sourceExpr = "source.", bool fill = false)
+            void BuildSourceParam(string sourceExpr = "source.", bool fill = false)
             {
+                int pos = code.Length;
+
+                code.Append(sourceExpr).Append(source.Name);
+
                 sourceExpr += source.Name;
 
-                if (source is {IsNullable: true, Type.IsValueType: true})
+                if (source is { IsNullable: true, Type.IsValueType: true })
                 {
-                    sourceExpr += ".Value";
+                    code.Append(".Value");
                 }
-                else if(!target.IsNullable && target.IsNullable)
+                else if (!target.IsNullable && target.IsNullable)
                 {
-                    sourceExpr += source.Bang;
+                    code.Append(source.Bang);
                 }
 
                 if (!fill && useCopyMethod)
                 {
-                    return $"{copyTargetMethodName}({sourceExpr})";
+                    code.Insert(pos, '(').Insert(pos, copyTargetMethodName).Append(')');
                 }
-
-                return sourceExpr;
             }
         }
         else if (target is { CanBeInitialized: true, IsAccessible: true })
@@ -211,7 +230,7 @@ internal sealed partial class MappingSet
 
             BuildValue();
         }
-        
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         void BuildValue()
         {
@@ -227,20 +246,18 @@ internal sealed partial class MappingSet
         }
     }
 
-    private bool AreNotMappableByDesign(bool ignoreCase, MemberMeta source, MemberMeta target, out bool ignoreSource, out bool ignoreTarget)
+    private bool DiscardMapping(bool ignoreCase, MemberMeta source, MemberMeta target, out bool ignoreSource, out bool ignoreTarget)
     {
         ignoreSource = ignoreTarget = false;
 
-        return !(target.Name.Equals(
-            source.Name,
-            ignoreCase
-                ? StringComparison.OrdinalIgnoreCase
-                : StringComparison.Ordinal)
-            | CheckMappability(target, source, ref ignoreSource, ref ignoreTarget)
-            | CheckMappability(source, target, ref ignoreTarget, ref ignoreSource));
+        var casing = ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+        return !(AreSimilarNames(source, target, casing)
+            | CheckMappability(casing, target, source, ref ignoreSource, ref ignoreTarget)
+            | CheckMappability(casing, source, target, ref ignoreTarget, ref ignoreSource));
     }
 
-    private bool CheckMappability(MemberMeta target, MemberMeta source, ref bool ignoreTarget, ref bool ignoreSource)
+    private bool CheckMappability(StringComparison casing, MemberMeta target, MemberMeta source, ref bool ignoreTarget, ref bool ignoreSource)
     {
         if (target.IsReadOnly || source.IsWriteOnly)
             return false;
@@ -255,15 +272,15 @@ internal sealed partial class MappingSet
 
             if (className == "global::SourceCrafter.Bindings.Attributes.IgnoreBindAttribute")
             {
-                switch ((ApplyOn)(int)attr.ConstructorArguments[0].Value!)
+                switch ((IgnoreBind)(int)attr.ConstructorArguments[0].Value!)
                 {
-                    case ApplyOn.Target:
+                    case IgnoreBind.Target:
                         ignoreTarget = true;
                         return false;
-                    case ApplyOn.Both:
+                    case IgnoreBind.Both:
                         ignoreTarget = ignoreSource = true;
                         return false;
-                    case ApplyOn.Source:
+                    case IgnoreBind.Source:
                         ignoreSource = true;
                         break;
                 }
@@ -289,19 +306,20 @@ internal sealed partial class MappingSet
                     Expression: IdentifierNameSyntax { Identifier.Text: "nameof" },
                     ArgumentList.Arguments: [{ Expression: MemberAccessExpressionSyntax { Name: { } id } }]
                 }
-                 && SymbolEqualityComparer.Default.GetHashCode(compilation.GetSemanticModel(id.SyntaxTree).GetSymbolInfo(id).Symbol) == source.Id)
+                 && (SymbolEqualityComparer.Default.GetHashCode(compilation.GetSemanticModel(id.SyntaxTree).GetSymbolInfo(id).Symbol) == source.Id
+                     || AreSimilarNames(source.Type.Name, (string)(attr.ConstructorArguments[0].Value ?? ""), target.Type.Name, target.Name, casing)))
             {
                 canWrite = true;
 
-                switch ((ApplyOn)(int)attr.ConstructorArguments[1].Value!)
+                switch ((IgnoreBind)(int)attr.ConstructorArguments[1].Value!)
                 {
-                    case ApplyOn.Target:
+                    case IgnoreBind.Target:
                         ignoreTarget = true;
                         return false;
-                    case ApplyOn.Both:
+                    case IgnoreBind.Both:
                         ignoreTarget = ignoreSource = true;
                         return false;
-                    case ApplyOn.Source:
+                    case IgnoreBind.Source:
                         ignoreSource = true;
                         break;
                 }
@@ -311,6 +329,20 @@ internal sealed partial class MappingSet
             }
         }
         return canWrite;
+    }
+
+    private bool AreSimilarNames(string sourceTypeName, string sourceMemberName, string targetTypeName, string targetMemberName, StringComparison casing)
+    {
+        return targetMemberName.Equals(sourceMemberName, casing)
+                || targetMemberName.Equals(targetTypeName + sourceMemberName, casing)
+                || (sourceTypeName + targetMemberName).Equals(sourceMemberName, casing);
+    }
+
+    private static bool AreSimilarNames(MemberMeta source, MemberMeta target, StringComparison casing)
+    {
+        return target.Name.Equals(source.Name, casing)
+                || target.Name.Equals(target.Type.Name + source.Name, casing)
+                || (source.Type.Name + target.Name).Equals(source.Name, casing);
     }
 
     private delegate void MemberBuilder(StringBuilder code, bool isFill);

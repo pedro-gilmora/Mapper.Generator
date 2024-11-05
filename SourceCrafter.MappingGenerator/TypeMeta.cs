@@ -21,7 +21,7 @@ internal sealed class TypeMeta
         FullName,
         NotNullFullName;
 
-    private readonly string         _nonGenericFullName;
+    private readonly string _nonGenericFullName;
 
     internal readonly string
         ExportNonGenericFullName,
@@ -50,7 +50,7 @@ internal sealed class TypeMeta
         IsValueType,
         IsKeyValueType,
         IsReference,
-        HasReachableZeroArgsCtor,
+        HasZeroArgsCtor,
         IsPrimitive,
         IsEnum,
         IsIterable;
@@ -61,6 +61,7 @@ internal sealed class TypeMeta
     private MemberMeta[]? _members = null;
 
     private readonly Func<MemberMeta[]> _getMembers = null!;
+    internal readonly string Name;
 
     internal bool HasMembers => !Members.IsEmpty;
 
@@ -88,11 +89,11 @@ internal sealed class TypeMeta
             ? membersSource.ContainingNamespace.ToGlobalNamespaced() + "."
             : null;
 
-        NotNullFullName = precedingNamespace + type.ToGlobalNamespaced();
-        FullName = NotNullFullName;
+        FullName = NotNullFullName = precedingNamespace + type.ToGlobalNamespaced();
+        Name = type.TypeKind is TypeKind.Interface ? type.Name[1..] : type.Name;
 
-        ExportFullName = ExportNotNullFullName = membersSource.AsNonNullable() is { } memSource
-            ? memSource.ToGlobalNamespaced().TrimEnd('?')
+        ExportFullName = ExportNotNullFullName = membersSource.AsNonNullable() is { } memberSource
+            ? memberSource.ToGlobalNamespaced().TrimEnd('?')
             : FullName;
 
         if (isNullable)
@@ -104,7 +105,7 @@ internal sealed class TypeMeta
         SanitizedName = SanitizeTypeName(type);
         AllowsNull = type.AllowsNull();
         _nonGenericFullName = type.ToGlobalNonGenericNamespace();
-        IsObject = _nonGenericFullName == "object";
+        IsObject = SymbolEqualityComparer.Default.Equals(type, compilation.ObjectType);
         ExportNonGenericFullName = type.ToGlobalNonGenericNamespace();
         IsTupleType = type.IsTupleType;
         IsValueType = type.IsValueType;
@@ -115,7 +116,7 @@ internal sealed class TypeMeta
         IsInterface = type.TypeKind == TypeKind.Interface;
         IsReference = type.IsReferenceType;
 
-        HasReachableZeroArgsCtor =
+        HasZeroArgsCtor =
             (type is INamedTypeSymbol { InstanceConstructors: { Length: > 0 } ctors }
              && ctors.FirstOrDefault(ctor => ctor.Parameters.IsDefaultOrEmpty)?
                     .DeclaredAccessibility is null or Accessibility.Public or Accessibility.Internal)

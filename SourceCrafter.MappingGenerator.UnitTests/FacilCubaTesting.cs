@@ -92,7 +92,6 @@ namespace SourceCrafter.Bindings.UnitTests
     public class UserBase
     {
         public readonly int? Id;
-        /* uuid */
         public string? Uuid { get; set; }
         public string Name { get; set; }
         public string LastName { get; set; }

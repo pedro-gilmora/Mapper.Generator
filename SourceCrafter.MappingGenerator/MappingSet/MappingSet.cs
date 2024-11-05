@@ -32,7 +32,7 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
     internal void TryAdd(
         ITypeSymbol sourceTypeSymbol,
         ITypeSymbol targetTypeSymbol,
-        ApplyOn ignore,
+        IgnoreBind ignore,
         MappingKind mapKind,
         Action<string, string> addSource)
     {
@@ -86,14 +86,14 @@ public static partial class BindingExtensions
         }
     }
 
-    private TypeMapping GetOrAdd(TypeMeta target, TypeMeta source)
+    internal TypeMapping GetOrAdd(TypeMeta target, TypeMeta source)
     {
         var hashCode = GetId(target.Id, source.Id);
         ref var item = ref GetOrAddDefault(hashCode, out bool exists);
 
         if (exists) return item!;
 
-        return item = new(hashCode, target, source);
+        return item = new(this, hashCode, target, source);
     }
 
     private static int GetId(int targetId, int sourceId) => 
@@ -102,4 +102,4 @@ public static partial class BindingExtensions
 
 internal readonly record struct TypeImplInfo(ITypeSymbol MembersSource, ITypeSymbol? Implementation = null);
 
-internal readonly record struct MapInfo(ITypeSymbol From, ITypeSymbol To, MappingKind MapKind, ApplyOn Ignore, bool Generate = true);
+internal readonly record struct MapInfo(ITypeSymbol From, ITypeSymbol To, MappingKind MapKind, IgnoreBind Ignore, bool Generate = true);

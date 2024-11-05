@@ -17,9 +17,9 @@ internal sealed partial class MappingSet
         CollectionInfo sourceCollInfo,
         CollectionInfo targetCollInfo,
         CollectionMapping collMapInfo,
-        ValueBuilder itemValueCreator,
-        KeyValueMappings? keyValueMapping,
-        ref ValueBuilder valueCreator,
+        ValueBuilder? itemValueCreator,
+        KeyValueMappings keyValueMapping,
+        ref ValueBuilder? valueCreator,
         ref MethodRenderer? methodCreator)
     {
         string
@@ -67,9 +67,10 @@ internal sealed partial class MappingSet
             };
 
             //User? <== UserDto?
-            var checkNull = (!targetItem.IsNullable || !targetCollInfo.ItemDataType.IsStruct) && sourceItem.IsNullable;
+            bool checkNull = (!targetItem.IsNullable || !targetCollInfo.ItemDataType.IsStruct) && sourceItem.IsNullable,
+                hasSuffix = (sourceCollInfo.Type, targetCollInfo.Type) is (not EnumerableType.Array, EnumerableType.ReadOnlySpan);
 
-            string? suffix = (sourceCollInfo.Type, targetCollInfo.Type) is (not EnumerableType.Array, EnumerableType.ReadOnlySpan) ? ".AsSpan()" : null,
+            string? suffix = hasSuffix ? ".AsSpan()" : null,
                 sourceBang = sourceItem.Bang,
                 defaultSourceBang = sourceItem.DefaultBang;
 
@@ -112,11 +113,11 @@ internal sealed partial class MappingSet
         {
             target[");
 
-                keyValueMapping!.Key.Invoke(code, "item");
+                keyValueMapping.Key.Invoke(code, "item");
 
                 code.Append("] = ");
 
-                keyValueMapping!.Value(code, "item");
+                keyValueMapping.Value(code, "item");
 
                 code.Append(@";
         }
@@ -259,7 +260,15 @@ internal sealed partial class MappingSet
                 global::System.Array.Resize(ref target, aux *= 2);
         }
         
-        return (len < aux ? target[..len] : target)").Append(suffix).Append(@";
+        return ");
+
+                        if (hasSuffix) code.Append('(');
+
+                        code.Append("len < aux ? target[..len] : target");
+
+                        if (hasSuffix) code.Append(')').Append(suffix);
+                        
+                        code.Append(@";
     }
 ");
                     }

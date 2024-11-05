@@ -4,24 +4,19 @@ using System;
 using System.Text;
 using System.Runtime.CompilerServices;
 using SourceCrafter.Bindings.Helpers;
+using SourceCrafter.DependencyInjection.Interop;
 
 namespace SourceCrafter.Bindings;
 
 internal delegate void MethodRenderer(StringBuilder code, ref RenderFlags rendered);
 
-internal struct TypeMappingEntry(uint id, int next, TypeMapping info)
-{
-    internal readonly uint
-        Id = id;
-
-    internal int Next = next;
-    internal readonly TypeMapping Info = info;
-}
-
 #pragma warning disable CS8618
 internal class TypeMapping
-#pragma warning restore CS8618
 {
+    private RenderFlags _sourceRenderFlags, _targetRenderFlags;
+
+    private bool _rendered = false;
+
     internal ValueBuilder?
         BuildTargetValue = default,
         BuildSourceValue = default;
@@ -33,19 +28,12 @@ internal class TypeMapping
         TryGetSourceMethodName,
         FillTargetMethodName,
         FillSourceMethodName;
-
+    private readonly MappingSet _mappingSet;
     internal readonly int Id;
-
-    private bool _rendered = false;
 
     internal Action<StringBuilder>? ExtraMappings;
 
-    // internal byte
-    //     TargetMaxDepth = 2,
-    //     SourceMaxDepth = 2;
-
-    private readonly bool
-        _isScalar;
+    private readonly bool _isScalar;
 
     internal readonly bool
         AreSameType,
@@ -61,7 +49,7 @@ internal class TypeMapping
 
     internal CollectionMapping SourceCollectionMap, TargetCollectionMap;
 
-    internal int ItemMapId;
+    internal readonly TypeMapping ItemMap;
 
     internal bool
         AddSourceTryGet,
@@ -72,8 +60,6 @@ internal class TypeMapping
         SourceRequiresMapper,
         IsCollection;
 
-    private RenderFlags _sourceRenderFlags, _targetRenderFlags;
-
 
     internal bool IsTargetRendered => _targetRenderFlags is not (false, false, false, false);
     internal bool IsSourceRendered => _sourceRenderFlags is not (false, false, false, false);
@@ -82,7 +68,7 @@ internal class TypeMapping
 
     internal MethodRenderer? BuildTargetMethod, BuildSourceMethod;
 
-    internal KeyValueMappings? TargetKeyValueMap, SourceKeyValueMap;
+    internal KeyValueMappings TargetKeyValueMap, SourceKeyValueMap;
 
     internal MappingKind MappingsKind { get; set; }
 
@@ -166,7 +152,7 @@ internal class TypeMapping
         ExtraMappings?.Invoke(code);
     }
 
-    public TypeMapping(int id, TypeMeta target, TypeMeta source)
+    public TypeMapping(MappingSet mappingSet, int id, TypeMeta target, TypeMeta source)
     {
         var sameType = target.Id == source.Id;
 
@@ -189,6 +175,8 @@ internal class TypeMapping
             ? "Update"
             : "Fill";
 
+        _mappingSet = mappingSet;
+
         Id = id;
         AreSameType = target.Id == source.Id;
         _isScalar = target.IsPrimitive && source.IsPrimitive;
@@ -204,6 +192,16 @@ internal class TypeMapping
         {
             TargetCollectionMap = BuildCollectionMapping(SourceType.CollectionInfo, TargetType.CollectionInfo, ToTargetMethodName, FillTargetMethodName);
             SourceCollectionMap = BuildCollectionMapping(TargetType.CollectionInfo, SourceType.CollectionInfo, ToSourceMethodName, FillSourceMethodName);
+
+            ItemMap = _mappingSet.GetOrAdd(TargetType.CollectionInfo.ItemDataType, SourceType.CollectionInfo.ItemDataType);
+
+            ItemMap.TargetType.IsRecursive |= ItemMap.TargetType.IsRecursive;
+            ItemMap.SourceType.IsRecursive |= ItemMap.SourceType.IsRecursive;
+
+            if (ItemMap.CanMap is false || !(SourceType.CollectionInfo.ItemDataType.HasZeroArgsCtor && TargetType.CollectionInfo.ItemDataType.HasZeroArgsCtor))
+            {
+                CanMap = IsCollection = false;
+            }
         }
     }
 
@@ -243,4 +241,4 @@ internal readonly record struct CollectionInfo(
 
 internal record struct CollectionMapping(bool IsDictionary, bool CreateArray, bool UseLenInsteadOfIndex, string Iterator, bool Redim, string? Method, string MethodName, string FillMethodName);
 
-internal record KeyValueMappings(ValueBuilder Key, ValueBuilder Value);
+internal readonly record struct KeyValueMappings(ValueBuilder Key, ValueBuilder Value);
