@@ -1,4 +1,4 @@
-﻿name: 'SourceCrafter.MappingGenerator: Build, Test & Deploy'
+﻿name: 'SourceCrafter.Mapifier: Build, Test & Deploy'
 
 on:
   push:
@@ -27,12 +27,24 @@ jobs:
 
       - name: Restore dependencies
         run: |
-          dotnet restore
+          output=$(dotnet restore SourceCrafter.Mapifier/SourceCrafter.Mapifier.csproj | awk '/: error / { print }')
+          
+          if [ "${#output}" -ne 0 ]; then
+            echo -e "Test errors:
+          $output" >> errors.log
+          fi
+          
+          output=$(dotnet restore SourceCrafter.Mapifier.UnitTests/SourceCrafter.Mapifier.UnitTests.csproj | awk '/: error / { print }')
+          
+          if [ "${#output}" -ne 0 ]; then
+            echo -e "Test errors:
+          $output" >> errors.log
+          fi     
 
       - name: Test
         id: test
         run: |
-          output=$(dotnet test SourceCrafter.MappingGenerator.UnitTests/SourceCrafter.MappingGenerator.UnitTests.csproj -c Release | awk '/: error / { print }')
+          output=$(dotnet test SourceCrafter.Mapifier.UnitTests/SourceCrafter.Mapifier.UnitTests.csproj -c Release | awk '/: error / { print }')
   
           if [ "${#output}" -ne 0 ]; then
             echo -e "Test errors:
@@ -46,7 +58,7 @@ jobs:
           version=""$(( $(date --date='now' +%Y) - $created_year )).$(date +%y).$(date +%j).$(( $(date +%H%M) / 5 ))""
           echo "VERSION=${version}" >> $GITHUB_ENV
           
-          output=$(dotnet pack SourceCrafter.MappingGenerator/SourceCrafter.Bindings.csproj --verbosity normal -c Pack /p:PackageVersion="$version" | awk '/: error / { print }')
+          output=$(dotnet pack SourceCrafter.Mapifier/SourceCrafter.Mapifier.csproj --verbosity normal -c Pack /p:PackageVersion="$version" | awk '/: error / { print }')
           
           if [ "${#output}" -ne 0 ]; then
             echo -e "Pack errors:
@@ -87,11 +99,13 @@ jobs:
 
           echo "These are the errors: [$errors]"
 
-          function escape ([string]$text)
+          function escape ([string] $text) 
+          {
             return $text -replace "([_\*\[\]\(\)~``>#\+\-=|{}\.!`"'])", '\$1'
           }
 
-          function releaseTrimming ([string]$text)
+          function releaseTrimming ([string] $text) 
+          {
             return $text -replace '^\[Release\]\s*', '' -replace '"', '\"'
           }
 
