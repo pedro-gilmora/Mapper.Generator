@@ -1,4 +1,4 @@
-﻿# ✨ **Mapper.Generator**: Source generator for conversion operators and static methods
+﻿# ✨ **SourceCrafter.Mapifier**: compile-time mapper
 
 ![deploy status](https://github.com/pedro-gilmora/Mapper.Generator/actions/workflows/dotnet.yml/badge.svg)
 

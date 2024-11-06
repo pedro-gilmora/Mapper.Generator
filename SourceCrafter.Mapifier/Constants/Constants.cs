@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace SourceCrafter.Bindings.Constants;
+namespace SourceCrafter.Mapifier.Constants;
 
 public enum IgnoreBind { None, Source, Target, Both }
 

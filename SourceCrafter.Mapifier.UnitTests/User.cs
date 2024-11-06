@@ -1,8 +1,8 @@
 ﻿//using SourceCrafter.Mapping.Attributes;
 //using SourceCrafter.Mapping.Constants;
 
-using SourceCrafter.Bindings.Attributes;
-using SourceCrafter.Bindings.UnitTests;
+using SourceCrafter.Mapifier.Attributes;
+using SourceCrafter.Mapifier.UnitTests;
 
 using System.Collections.ObjectModel;
 using System.Text.Json.Serialization;

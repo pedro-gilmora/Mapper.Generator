@@ -2,7 +2,7 @@
 
 using System.Collections.Immutable;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal sealed record MemberMeta(
     int Id,
@@ -11,7 +11,6 @@ internal sealed record MemberMeta(
     bool IsReadOnly = false,
     bool IsWriteOnly = false,
     bool IsInit = false,
-    bool CanMap = true,
     bool IsProperty = false,
     ImmutableArray<AttributeData> Attributes = default)
 {
@@ -21,12 +20,12 @@ internal sealed record MemberMeta(
 
     internal TypeMeta Type = null!;
 
-    internal TypeMeta? OwningType;
+    internal TypeMeta OwningType = null!;
 
     internal bool IsAutoProperty, CanBeInitialized = true, IsAccessible = true;
 
     internal int Position;
 
     public override string ToString() => 
-        $"({(Type?.ToString() ?? "?")}) {(OwningType?.ExportNotNullFullName is { } name ? name+"." : null)}{Name}";
+        $"({Type?.ToString() ?? "?"}) {(OwningType?.ExportNotNullFullName is { } name ? name + "." : null)}{Name}";
 }

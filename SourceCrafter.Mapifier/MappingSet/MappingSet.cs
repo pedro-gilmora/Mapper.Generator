@@ -1,5 +1,5 @@
 ﻿using Microsoft.CodeAnalysis;
-using SourceCrafter.Bindings.Constants;
+using SourceCrafter.Mapifier.Constants;
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
@@ -7,10 +7,10 @@ using System.Diagnostics;
 using System.Dynamic;
 using System.Runtime.CompilerServices;
 using System.Text;
-using SourceCrafter.Bindings.Helpers;
+using SourceCrafter.Mapifier.Helpers;
 
 // ReSharper disable once CheckNamespace
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSet) 
     : Set<int, TypeMapping>(m => GetId(m.SourceType.Id, m.TargetType.Id))
@@ -65,7 +65,7 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
                 "+");
 
             StringBuilder code = new(@"#nullable enable
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 public static partial class BindingExtensions
 {");
@@ -99,7 +99,5 @@ public static partial class BindingExtensions
     private static int GetId(int targetId, int sourceId) => 
         (Math.Min(targetId, sourceId), Math.Max(targetId, sourceId)).GetHashCode();
 }
-
-internal readonly record struct TypeImplInfo(ITypeSymbol MembersSource, ITypeSymbol? Implementation = null);
 
 internal readonly record struct MapInfo(ITypeSymbol From, ITypeSymbol To, MappingKind MapKind, IgnoreBind Ignore, bool Generate = true);

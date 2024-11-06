@@ -24,7 +24,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<ProjectReference Include="..\SourceCrafter.MappingGenerator\SourceCrafter.Bindings.csproj" OutputItemType="Analyzer" />
+		<ProjectReference Include="..\SourceCrafter.Mapifier\SourceCrafter.Mapifier.csproj" OutputItemType="Analyzer" />
 	</ItemGroup>
 
 

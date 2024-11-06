@@ -1,10 +1,10 @@
 ﻿using Microsoft.CodeAnalysis;
-using SourceCrafter.Bindings.Helpers;
+using SourceCrafter.Mapifier.Helpers;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal delegate void ValueBuilder(StringBuilder code, string val);
 

@@ -6,8 +6,8 @@
 
 //using SourceCrafter.Mapping.Attributes;
 
-using SourceCrafter.Bindings.Attributes;
-using SourceCrafter.Bindings.UnitTests;
+using SourceCrafter.Mapifier.Attributes;
+using SourceCrafter.Mapifier.UnitTests;
 
 using System.Collections.Generic;
 using System.Collections.ObjectModel;

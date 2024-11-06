@@ -1,10 +1,10 @@
-﻿using SourceCrafter.Bindings.Constants;
-using SourceCrafter.Bindings.Helpers;
+﻿using SourceCrafter.Mapifier.Helpers;
 
 using System;
 using System.Text;
+using SourceCrafter.Mapifier.Constants;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal sealed partial class MappingSet
 {
@@ -31,9 +31,9 @@ internal sealed partial class MappingSet
             sttTypeStart = map.TargetType.IsTupleType ? TupleStart : string.Format(TypeStart, map.TargetType.NotNullFullName),
             sttTypeEnd = map.TargetType.IsTupleType ? TupleEnd : TypeEnd,
             ttsSpacing = map.SourceType.IsTupleType ? " " : @"
-",
+            ",
             sttSpacing = map.TargetType.IsTupleType ? " " : @"
-";
+            ";
 
         MemberBuilder?
             sourceMemberMappers = null!,
@@ -376,7 +376,7 @@ internal sealed partial class MappingSet
                                 memberMap.TargetHasScalarConversion);
 
                             if (sourceMember.Type.NullableMethodUnsafeAccessor is { } nullUnsafeAccesor)
-                                map.ExtraMappings += code => nullUnsafeAccesor.Render(code);
+                                map.ExtraMappings += _ => nullUnsafeAccesor.Render(code);
                         };
                     }
 

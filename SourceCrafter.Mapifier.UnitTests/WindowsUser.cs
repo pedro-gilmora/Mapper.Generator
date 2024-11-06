@@ -1,7 +1,8 @@
-﻿using SourceCrafter.Bindings.Attributes;
-using SourceCrafter.Bindings.Constants;
+﻿using SourceCrafter.Mapifier.Attributes;
+using SourceCrafter.Mapifier.Constants;
+using SourceCrafter.UnitTests;
 
-namespace SourceCrafter.UnitTests;
+namespace SourceCrafter.Mapifier.UnitTests;
 
 public partial class WindowsUser
 {

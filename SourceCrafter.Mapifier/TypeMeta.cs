@@ -1,17 +1,16 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-
-using SourceCrafter.Bindings.Constants;
-using SourceCrafter.Bindings.Helpers;
+using SourceCrafter.Mapifier.Helpers;
 
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
+using SourceCrafter.Mapifier.Constants;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal sealed class TypeMeta
 {
@@ -244,7 +243,6 @@ internal sealed class TypeMeta
                                     isReadonly,
                                     isWriteOnly,
                                     setMethod?.IsInitOnly == true,
-                                    true,
                                     true,
                                     member.GetAttributes())
                                 {

@@ -3,19 +3,19 @@ using Xunit;
 using System.Text;
 
 // Analyzer 
-using SourceCrafter.Bindings;
+using SourceCrafter.Mapifier;
 
 //Testing purpose
 using FluentAssertions;
 using System.Collections.Immutable;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using SourceCrafter.Bindings.Attributes;
-using SourceCrafter.Bindings.Helpers;
-using SourceCrafter.Bindings.Constants;
+using SourceCrafter.Mapifier.Attributes;
+using SourceCrafter.Mapifier.Helpers;
+using SourceCrafter.Mapifier.Constants;
 using SourceCrafter.UnitTests;
 
-namespace SourceCrafter.Bindings.UnitTests;
+namespace SourceCrafter.Mapifier.UnitTests;
 
 public class TestImplicitMapper
 {

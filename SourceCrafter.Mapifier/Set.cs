@@ -4,7 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 public abstract class Set<TValue> : IEnumerable<TValue>
 {

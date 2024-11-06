@@ -1,4 +1,4 @@
-﻿using SourceCrafter.Bindings.Attributes;
+﻿using SourceCrafter.Mapifier.Attributes;
 
 //Testing utils
 using Xunit;
@@ -8,13 +8,13 @@ using Xunit;
 //Testing purpose
 using FluentAssertions;
 using System.ComponentModel;
-using static SourceCrafter.EnumExtensions.EnumExtensions;
+using static SourceCrafter.Mapifier.EnumExtensions;
 using FluentAssertions.Common;
-using SourceCrafter.Bindings.Constants;
+using SourceCrafter.Mapifier.Constants;
 
 [assembly: Extend<MappingKind>]
 
-namespace SourceCrafter.Bindings.UnitTests;
+namespace SourceCrafter.Mapifier.UnitTests;
 
 public class EnumsTest
 {

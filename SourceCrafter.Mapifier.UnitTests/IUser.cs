@@ -6,7 +6,7 @@
 
 //Testing purpose
 
-using SourceCrafter.Bindings.UnitTests;
+using SourceCrafter.Mapifier.UnitTests;
 
 namespace SourceCrafter.UnitTests;
 

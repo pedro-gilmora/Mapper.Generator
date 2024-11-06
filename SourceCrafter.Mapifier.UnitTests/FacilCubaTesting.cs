@@ -1,11 +1,11 @@
-﻿using SourceCrafter.Bindings.Attributes;
+﻿using SourceCrafter.Mapifier.Attributes;
 using System.Transactions;
-using Xunit;
 using FluentAssertions;
+using Xunit;
 using SourceCrafter.Mvvm.Attributes;
 
 
-namespace SourceCrafter.Bindings.UnitTests
+namespace SourceCrafter.Mapifier.UnitTests
 {
     public class FacilCubaTesting
     {

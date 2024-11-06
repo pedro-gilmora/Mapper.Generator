@@ -1,10 +1,10 @@
-﻿using SourceCrafter.Bindings.Constants;
-using SourceCrafter.Bindings.Helpers;
+﻿using SourceCrafter.Mapifier.Helpers;
 
 using System;
 using System.Text;
+using SourceCrafter.Mapifier.Constants;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal sealed partial class MappingSet
 {

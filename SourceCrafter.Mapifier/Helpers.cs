@@ -7,8 +7,8 @@ using System.Text;
 using Microsoft.CodeAnalysis;
 
 
-[assembly: InternalsVisibleTo("SourceCrafter.Bindings.UnitTests")]
-namespace SourceCrafter.Bindings.Helpers
+[assembly: InternalsVisibleTo("SourceCrafter.Mapifier.UnitTests")]
+namespace SourceCrafter.Mapifier.Helpers
 {
     public static class Extensions
     {

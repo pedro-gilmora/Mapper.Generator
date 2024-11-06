@@ -3,14 +3,15 @@ using Microsoft.CodeAnalysis;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using System;
-using SourceCrafter.Bindings.Constants;
 using System.Linq;
 using System.Text;
 using System.Diagnostics;
 using System.Collections.Generic;
+using SourceCrafter.Bindings;
+using SourceCrafter.Mapifier.Constants;
 
-[assembly: InternalsVisibleTo("SourceCrafter.Bindings.UnitTests")]
-namespace SourceCrafter.Bindings;
+[assembly: InternalsVisibleTo("SourceCrafter.Mapifier.UnitTests")]
+namespace SourceCrafter.Mapifier;
 
 [Generator]
 public class Generator : IIncrementalGenerator
@@ -23,17 +24,17 @@ public class Generator : IIncrementalGenerator
             Debugger.Launch();
 #endif
             var d = FindMapperAttributes(context,
-                "SourceCrafter.Bindings.Attributes.ExtendAttribute`1",
+                "SourceCrafter.Mapifier.Attributes.ExtendAttribute`1",
                 static n => true,
                 static (targetSymbol, model, attr) => attr.AttributeClass?.TypeArguments[0]!)
                 .Combine(
                     FindMapperAttributes(context,
-                    "SourceCrafter.Bindings.Attributes.ExtendAttribute",
+                    "SourceCrafter.Mapifier.Attributes.ExtendAttribute",
                     static n => n is EnumDeclarationSyntax,
                     static (targetSymbol, model, attr) => (ITypeSymbol)targetSymbol)
                     .Combine(
                         FindMapperAttributes(context,
-                            "SourceCrafter.Bindings.Attributes.BindAttribute`1",
+                            "SourceCrafter.Mapifier.Attributes.BindAttribute`1",
                             static n => n is ClassDeclarationSyntax,
                             static (targetSymbol, model, attr) =>
                                 attr is { AttributeClass.TypeArguments: [{ } target], ConstructorArguments: [{ Value: int mapKind }, { Value: int ignore }, ..] }
@@ -46,7 +47,7 @@ public class Generator : IIncrementalGenerator
                         .Combine(
                             FindMapperAttributes(
                                 context,
-                                "SourceCrafter.Bindings.Attributes.BindAttribute`2",
+                                "SourceCrafter.Mapifier.Attributes.BindAttribute`2",
                                 static n => n is CompilationUnitSyntax,
                                 static (_, model, attr) =>
                                     attr is { AttributeClass.TypeArguments: [{ } target, { } source], ConstructorArguments: [{ Value: int mapKind }, { Value: int ignore }, ..] }
@@ -61,35 +62,24 @@ public class Generator : IIncrementalGenerator
                 =>
             {
                 var (compilation, (enums, (enums2, (assembly, classes)))) = info;
-                try
-                {
-                    BuildCode(
-                        ctx.AddSource,
-                        compilation,
-                        enums.Concat(enums2).Distinct(SymbolEqualityComparer.Default).Cast<ITypeSymbol>().ToImmutableArray(),
-                        classes,
-                        assembly);
-                }
-                catch (Exception e)
-                {
-                    if (Debugger.IsAttached && Debugger.IsLogging())
-                        Debugger.Log(0, "SGExceptions", "[SouceCrafter.Bindings]: Error attempting to generate mappings and enum extensions:\n" + e.ToString());
-                }
+                
+                BuildCode(
+                    ctx.AddSource,
+                    compilation,
+                    enums.Concat(enums2).Distinct(SymbolEqualityComparer.Default).Cast<ITypeSymbol>().ToImmutableArray(),
+                    classes,
+                    assembly);
             });
 
         }
         catch (Exception e)
         {
-            Trace.Write("[SourceCrafter Exception]" + e.ToString());
+            Trace.Write($"[SourceCrafter.Mapifier Exception] {e}");
         }
     }
 
-    private void ProcessPosibleMappers(SourceProductionContext ctx, Compilation compilation, ImmutableArray<ITypeSymbol> enums, ImmutableArray<MapInfo> overClass, ImmutableArray<MapInfo> assembly)
-    {
-    }
-
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    internal void BuildCode(
+    private static void BuildCode(
         Action<string, string> addSource,
         Compilation compilation,
         ImmutableArray<ITypeSymbol> enums,
@@ -116,7 +106,7 @@ public class Generator : IIncrementalGenerator
             if (len == code.Length) return;
 
             const string head = @"#nullable enable
-namespace SourceCrafter.EnumExtensions;
+namespace SourceCrafter.Mapifier;
 
 public static partial class EnumExtensions
 {";
@@ -143,16 +133,16 @@ public static partial class EnumExtensions
 
         }
 
-        foreach (var gctx in assembliesLevel)
-            if (gctx.Generate)
-                set.TryAdd(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
+        foreach (var info in assembliesLevel)
+            if (info.Generate)
+                set.TryAdd(info.From, info.To, info.Ignore, info.MapKind, addSource);
 
-        foreach (var gctx in classesLevel)
-            if (gctx.Generate)
-                set.TryAdd(gctx.From, gctx.To, gctx.Ignore, gctx.MapKind, addSource);
+        foreach (var info in classesLevel)
+            if (info.Generate)
+                set.TryAdd(info.From, info.To, info.Ignore, info.MapKind, addSource);
     }
 
-    private string BuildProperty(TypeMeta type, SortedSet<string> enumPropertyNameSet)
+    private static string BuildProperty(TypeMeta type, SortedSet<string> enumPropertyNameSet)
     {
         if (enumPropertyNameSet.Add(type.SanitizedName)) return type.SanitizedName;
 

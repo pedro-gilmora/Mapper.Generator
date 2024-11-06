@@ -87,18 +87,12 @@ jobs:
 
           echo "These are the errors: [$errors]"
 
-          function escape {
-            param (
-                [string]$text
-            )
+          function escape ([string]$text)
             return $text -replace "([_\*\[\]\(\)~``>#\+\-=|{}\.!`"'])", '\$1'
           }
 
-          function releaseTrimming {
-            param (
-              [string]$text
-            )
-            return $( $text -replace '^\[Release\]\s*', '' -replace '"', '\"' )
+          function releaseTrimming ([string]$text)
+            return $text -replace '^\[Release\]\s*', '' -replace '"', '\"'
           }
 
           $isRelease = $githubEvent.head_commit.message -match '^\[Release\]\s*'

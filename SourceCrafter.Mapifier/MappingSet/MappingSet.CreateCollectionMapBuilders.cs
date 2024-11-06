@@ -1,9 +1,10 @@
-﻿using SourceCrafter.Bindings.Constants;
-using SourceCrafter.Bindings.Helpers;
+﻿using SourceCrafter.Mapifier.Constants;
+using SourceCrafter.Mapifier.Helpers;
 
 using System.Text;
+using SourceCrafter.Mapifier;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal sealed partial class MappingSet
 {
@@ -59,9 +60,9 @@ internal sealed partial class MappingSet
             (var defaultType, var initType, var returnExpr) = (targetCollInfo.Type, target.Type.IsInterface) switch
             {
                 (EnumerableType.ReadOnlyCollection, true) =>
-                    ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, new ValueBuilder((code, v) => code.Append("new global::System.Collections.ObjectModel.ReadOnlyCollection<").Append(targetItemFullTypeName).Append(">(").Append(v).Append(")"))),
+                    ($"global::SourceCrafter.Mapifier.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection", underlyingCollectionType, new ValueBuilder((code, v) => code.Append("new global::System.Collections.ObjectModel.ReadOnlyCollection<").Append(targetItemFullTypeName).Append(">(").Append(v).Append(")"))),
                 (EnumerableType.Collection, true) =>
-                    ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyCollection", underlyingCollectionType, new ValueBuilder((code, v) => code.Append(v))),
+                    ($"global::SourceCrafter.Mapifier.CollectionExtensions<{targetItemFullTypeName}>.EmptyCollection", underlyingCollectionType, new ValueBuilder((code, v) => code.Append(v))),
                 _ =>
                     ("new " + targetFullTypeName + "()", targetFullTypeName + "()", new ValueBuilder((code, v) => code.Append(v)))
             };

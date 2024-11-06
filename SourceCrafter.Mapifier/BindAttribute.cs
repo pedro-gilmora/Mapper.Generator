@@ -1,8 +1,8 @@
 ﻿using System;
-using SourceCrafter.Bindings.Constants;
+using SourceCrafter.Mapifier.Constants;
 
 
-namespace SourceCrafter.Bindings.Attributes
+namespace SourceCrafter.Mapifier.Attributes
 {
 #pragma warning disable CS9113 // Parameter is unread.
     [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
@@ -28,7 +28,7 @@ namespace SourceCrafter.Bindings.Attributes
 #pragma warning restore CS9113 // Parameter is unread.
 }
 
-namespace SourceCrafter.Bindings
+namespace SourceCrafter.Mapifier
 {
     public interface IImplement<TInterface, TImplementation> where TImplementation : class, TInterface;
 }

@@ -1,12 +1,12 @@
 ﻿using Microsoft.CodeAnalysis;
-using SourceCrafter.Bindings.Helpers;
+using SourceCrafter.Mapifier.Helpers;
 
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal sealed class TypeSet(Compilation compilation) : Set<int, TypeMeta>(m => m.Id)
 {
@@ -26,7 +26,7 @@ internal sealed class TypeSet(Compilation compilation) : Set<int, TypeMeta>(m =>
     private static void GetTypeMapInfo(ITypeSymbol targetSymbol, out ITypeSymbol memberSource, out ITypeSymbol? implementation)
     {
         (memberSource, implementation) = targetSymbol is INamedTypeSymbol { } namedSymbol 
-            && namedSymbol.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Bindings.IImplement"
+            && namedSymbol.ToGlobalNonGenericNamespace() == "global::SourceCrafter.Mapifier.IImplement"
             ? (namedSymbol.TypeArguments[0], namedSymbol.TypeArguments[1])
             : (targetSymbol, null);
     }

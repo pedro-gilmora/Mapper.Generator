@@ -1,12 +1,12 @@
 ﻿using Microsoft.CodeAnalysis;
-using SourceCrafter.Bindings.Constants;
 using System;
 using System.Text;
 using System.Runtime.CompilerServices;
-using SourceCrafter.Bindings.Helpers;
+using SourceCrafter.Mapifier.Helpers;
 using SourceCrafter.DependencyInjection.Interop;
+using SourceCrafter.Mapifier.Constants;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal delegate void MethodRenderer(StringBuilder code, ref RenderFlags rendered);
 

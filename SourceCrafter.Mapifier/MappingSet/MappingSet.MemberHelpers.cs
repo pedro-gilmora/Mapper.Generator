@@ -1,14 +1,13 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-
-using SourceCrafter.Bindings.Constants;
-using SourceCrafter.Bindings.Helpers;
+using SourceCrafter.Mapifier.Helpers;
 
 using System;
 using System.Runtime.CompilerServices;
 using System.Text;
+using SourceCrafter.Mapifier.Constants;
 
-namespace SourceCrafter.Bindings;
+namespace SourceCrafter.Mapifier;
 
 internal sealed partial class MappingSet
 {
@@ -52,7 +51,7 @@ internal sealed partial class MappingSet
             if (useUnsafeWriter)
             {
                 string
-                    getPrivFieldMethodName = $"Get{target.OwningType!.SanitizedName}{targetMemberName}",
+                    getPrivFieldMethodName = $"{targetMemberName}From{target.OwningType!.SanitizedName}",
                     targetOwnerXmlDocType = target.OwningType.NotNullFullName.Replace("<", "{").Replace(">", "}");
 
                 target.OwningType!.UnsafePropertyFieldsGetters.Add(new(targetMemberName, $@"
@@ -198,20 +197,11 @@ internal sealed partial class MappingSet
 
             void BuildSourceParam(string sourceExpr = "source.", bool fill = false)
             {
-                int pos = code.Length;
+                var pos = code.Length;
 
                 code.Append(sourceExpr).Append(source.Name);
 
-                sourceExpr += source.Name;
-
-                if (source is { IsNullable: true, Type.IsValueType: true })
-                {
-                    code.Append(".Value");
-                }
-                else if (!target.IsNullable && target.IsNullable)
-                {
-                    code.Append(source.Bang);
-                }
+                code.Append(source is { IsNullable: true, Type.IsValueType: true } ? ".Value" : source.Bang);
 
                 if (!fill && useCopyMethod)
                 {
@@ -270,7 +260,7 @@ internal sealed partial class MappingSet
         {
             if (attr.AttributeClass?.ToGlobalNamespaced() is not { } className) continue;
 
-            if (className == "global::SourceCrafter.Bindings.Attributes.IgnoreBindAttribute")
+            if (className == "global::SourceCrafter.Mapifier.Attributes.IgnoreBindAttribute")
             {
                 switch ((IgnoreBind)(int)attr.ConstructorArguments[0].Value!)
                 {
@@ -291,13 +281,13 @@ internal sealed partial class MappingSet
                 continue;
             }
 
-            if (className == "global::SourceCrafter.Bindings.Attributes.MaxAttribute")
+            if (className == "global::SourceCrafter.Mapifier.Attributes.MaxAttribute")
             {
                 target.MaxDepth = (short)attr.ConstructorArguments[0].Value!;
                 continue;
             }
 
-            if (className != "global::SourceCrafter.Bindings.Attributes.BindAttribute")
+            if (className != "global::SourceCrafter.Mapifier.Attributes.BindAttribute")
                 continue;
 
             if ((attr.ApplicationSyntaxReference?.GetSyntax() as AttributeSyntax)?.ArgumentList?.Arguments[0].Expression
