@@ -382,17 +382,22 @@ internal sealed class TypeMeta
 
         string?
             collectionsComma = null,
+            categoriesComma = null,
             caseComma = null,
             values = null,
             descriptions = null,
+            categories = null,
             names = null,
             name = null,
             description = null,
+            category = null,
             definedByName = null,
             definedByInt = "",
             tryGetValue = null,
             tryGetName = null,
             tryGetDesc = null;
+
+        Dictionary<string, HashSet<string>> categoriesSet = new(StringComparer.Ordinal);
 
         foreach (var m in members.OfType<IFieldSymbol>())
         {
@@ -402,14 +407,36 @@ internal sealed class TypeMeta
 
             var descriptionStr = GetEnumDescription(m);
 
-            descriptions += collectionsComma + descriptionStr;
+            var categoryStr = GetEnumCategory(m);
+
+            if (categoryStr.Length > 2)
+            {
+                if(categoriesSet.TryGetValue(categoryStr, out var set))
+                {
+                    set.Add(fullMemberName);
+                }
+                else
+                {
+                    categories += categoriesComma + categoryStr;
+
+                    categoriesSet.Add(categoryStr, new(StringComparer.Ordinal) { fullMemberName });
+
+                    categoriesComma ??= @",
+            ";
+                }
+            }
 
             names += collectionsComma + "nameof(" + fullMemberName + ")";
+
+            descriptions += collectionsComma + descriptionStr;
 
             name += caseComma + "case " + fullMemberName + ": return nameof(" + fullMemberName + ");";
 
             description += caseComma + "case " + fullMemberName + @": 
                 return " + descriptionStr + ";";
+
+            category += caseComma + "case " + fullMemberName + @": 
+                return " + categoryStr + ";";
 
             var distinctIntCase = "case " + Convert.ToString(m.ConstantValue!);
 
@@ -473,6 +500,9 @@ internal sealed class TypeMeta
             .Append(@"Descriptions,
         _cached")
             .Append(SanitizedName)
+            .Append(@"Categories,
+        _cached")
+            .Append(SanitizedName)
             .Append(@"Names;
 
     public static global::System.Span<string> GetDescriptions(this ")
@@ -492,6 +522,49 @@ internal sealed class TypeMeta
             .Append(descriptions)
             .Append(@"
         };
+    }
+
+    public static global::System.Span<string> GetCategories(this ")
+            .Append(NotNullFullName)
+            .Append(@" _)
+    {
+        if(_cached")
+            .Append(SanitizedName)
+            .Append("Categories is not null) return _cached")
+            .Append(SanitizedName)
+            .Append(@"Categories;
+
+        lock(__lock) return _cached")
+            .Append(SanitizedName)
+            .Append(@"Categories ??= new string [] {
+            ")
+            .Append(categories)
+            .Append(@"
+        };
+    }
+
+    public static string GetCategory(this ")
+            .Append(NotNullFullName)
+            .Append(@" value)
+    {
+        switch(value)
+        {");
+
+        foreach (var item in categoriesSet)
+        {
+
+            foreach (var member in item.Value)
+            {
+                code.Append(@"
+            case ").Append(member).Append(":");
+            }
+            code.Append(@" 
+                return ").Append(item.Key).Append(";");
+        }
+
+        code.Append(@"
+            default: throw new global::System.Exception(""The value has no category""); 
+        }
     }
 
     public static global::System.Span<string> GetNames(this ")
@@ -517,7 +590,7 @@ internal sealed class TypeMeta
             .Append(NotNullFullName)
             .Append(@" value, bool throwOnNotFound = false) 
 	{
-		switch(value)
+        switch(value)
         {
             ")
             .Append(name)
@@ -532,7 +605,7 @@ internal sealed class TypeMeta
             .Append(NotNullFullName)
             .Append(@" value, bool throwOnNotFound = false) 
     {
-		switch(value)
+        switch(value)
         {
             ")
             .Append(description)
@@ -612,6 +685,11 @@ internal sealed class TypeMeta
 
         string MemberFullName(ISymbol m) => NotNullFullName + "." + m.Name;
     }
+
+    private string GetEnumCategory(IFieldSymbol m) => $@"""{m
+        .GetAttributes()
+        .FirstOrDefault(a => a.AttributeClass?.ToGlobalNamespaced() is "global::System.ComponentModel.CategoryAttribute")
+        ?.ConstructorArguments.FirstOrDefault().Value?.ToString() ?? ""}""";
 
     internal void BuildKeyValuePair(StringBuilder sb, string @params)
     {

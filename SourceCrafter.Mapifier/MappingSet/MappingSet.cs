@@ -49,8 +49,8 @@ internal sealed partial class MappingSet(Compilation compilation, TypeSet typeSe
         TypeMapping BuildMap(TypeMeta targetTypeData, TypeMeta sourceTypeData)
         {
             MemberMeta 
-                targetMember = new(++_targetScopeId, "to", targetTypeSymbol.IsNullable()), 
-                sourceMember = new(--_sourceScopeId, "source", sourceTypeSymbol.IsNullable());
+                targetMember = new(++_targetScopeId, "to", targetTypeSymbol.IsNullable()) { Type = targetTypeData }, 
+                sourceMember = new(--_sourceScopeId, "source", sourceTypeSymbol.IsNullable()){Type = sourceTypeData };
 
             var mapping = GetOrAdd(targetTypeData, sourceTypeData);
 
@@ -80,7 +80,6 @@ public static partial class BindingExtensions
 
             addSource(id, code.Append(@"
 }").ToString());
-
 
             return mapping;
         }

@@ -34,7 +34,11 @@ public class EnumsTest
 
         StatusEnum.GetNames().ToArray().Should().BeEquivalentTo("NotStarted", "Stopped", "Started", "Cancelled", "Failed");
 
+        StatusEnum.GetCategories().ToArray().Should().BeEquivalentTo("Good", "Bad");
+
         Status.Started.GetName().Should().Be("Started");
+
+        Status.Started.GetCategory().Should().Be("Good");
 
         "Cancelled".TryGetValue(out Status status).Should().BeTrue();
 
@@ -103,13 +107,18 @@ public class EnumsTest
 [Extend]
 public enum Status
 {
+    [Category("Good")]
     NotStarted,
     [Description("Transaction was stopped")]
+    [Category("Good")]
     Stopped,
     [Description("Transaction has been started")]
+    [Category("Good")]
     Started,
     [Description("Transaction has been cancelled by user")]
+    [Category("Bad")]
     Cancelled,
     [Description("Transaction had an external failure")]
+    [Category("Bad")]
     Failed
 }

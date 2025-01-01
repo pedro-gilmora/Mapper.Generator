@@ -128,9 +128,8 @@ public static partial class EnumExtensions
 
             code.Append(@"
 }");
+
             addSource(type.ExportFullName.Replace("global::", ""), code.ToString());
-
-
         }
 
         foreach (var info in assembliesLevel)
