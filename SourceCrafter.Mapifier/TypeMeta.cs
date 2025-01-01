@@ -543,7 +543,7 @@ internal sealed class TypeMeta
         };
     }
 
-    public static string GetCategory(this ")
+    public static string? GetCategory(this ")
             .Append(NotNullFullName)
             .Append(@" value)
     {
@@ -563,7 +563,7 @@ internal sealed class TypeMeta
         }
 
         code.Append(@"
-            default: throw new global::System.Exception(""The value has no category""); 
+            default: return null;
         }
     }
 
