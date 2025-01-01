@@ -110,15 +110,12 @@ public enum Status
     [Category("Good")]
     NotStarted,
     [Description("Transaction was stopped")]
-    [Category("Good")]
     Stopped,
     [Description("Transaction has been started")]
-    [Category("Good")]
     Started,
     [Description("Transaction has been cancelled by user")]
     [Category("Bad")]
     Cancelled,
     [Description("Transaction had an external failure")]
-    [Category("Bad")]
     Failed
 }

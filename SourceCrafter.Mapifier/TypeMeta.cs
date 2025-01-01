@@ -398,6 +398,7 @@ internal sealed class TypeMeta
             tryGetDesc = null;
 
         Dictionary<string, HashSet<string>> categoriesSet = new(StringComparer.Ordinal);
+        string? lastCategory = null;
 
         foreach (var m in members.OfType<IFieldSymbol>())
         {
@@ -424,9 +425,15 @@ internal sealed class TypeMeta
                     categoriesComma ??= @",
             ";
                 }
+
+                lastCategory = categoryStr;
+            }
+            else if(lastCategory is { })
+            {
+                categoriesSet[lastCategory].Add(fullMemberName);
             }
 
-            names += collectionsComma + "nameof(" + fullMemberName + ")";
+                names += collectionsComma + "nameof(" + fullMemberName + ")";
 
             descriptions += collectionsComma + descriptionStr;
 
