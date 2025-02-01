@@ -1,119 +1,94 @@
-﻿using System.Collections.Immutable;
+﻿using System;
+using System.Collections.Immutable;
+using System.Runtime.CompilerServices;
+using System.Text;
 
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
-
 using SourceCrafter.Helpers;
+using SourceCrafter.Mappify.Helpers;
 
 namespace SourceCrafter.Mappify;
 
-internal sealed partial class Mappers : Set<int, TypeMap>
+internal sealed partial class Mappers(Compilation compilation) : Set<int, TypeMap>(m => m.Id)
 {
-    internal readonly TypeSet Types;
-    internal readonly bool CanUseUnsafeAccessor;
+    internal readonly TypeSet Types = new(compilation);
 
-    public Mappers(Compilation compilation, ImmutableArray<Mapping> bindAttrs) : base(m => m.Id)
+    internal readonly bool CanUseUnsafeAccessor =
+        compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.UnsafeAccessorAttribute") is not null;
+
+
+    internal TypeMap GetOrAdd(
+        MemberMeta source,
+        MemberMeta target,
+        GenerateOn ignore,
+        bool dictionaryContext = false)
     {
-        CanUseUnsafeAccessor = compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.UnsafeAccessorAttribute") is not null;
-        
-        Types = new(compilation);
-
-#pragma warning disable IDE0042 // Deconstruct variable declaration
-        foreach (var item in bindAttrs) GetOrAdd(item.a, item.b, item.ignore);
-#pragma warning restore IDE0042 // Deconstruct variable declaration
-    }
-
-    internal TypeMap GetOrAdd(TypeMeta source, TypeMeta target, Applyment ignore, bool isSourceNullable = false, bool isTargetNullable = false)
-    {
-        return GetOrAdd(source.Symbol, target.Symbol, ignore);
-    }
-
-    internal TypeMap GetOrAdd(MemberMeta source, MemberMeta target, Applyment ignore)
-    {
-        return GetOrAdd(source.Type.Symbol, source.Type.Symbol, ignore, source.IsNullable, target.IsNullable);
-    }
-
-    private TypeMap GetOrAdd(ITypeSymbol source, ITypeSymbol target, Applyment ignore, bool isSourceNullable = false, bool isTargetNullable = false)
-    {
-        var (sourceId, targetId) = (SymbolEqualityComparer.Default.GetHashCode(source), SymbolEqualityComparer.Default.GetHashCode(target));
-
-        #region Check existence
-
-        var mapperId = TypeMap.GetId(sourceId, targetId);
+        var mapperId = TypeMap.GetId(source.Type.Id, target.Type.Id);
 
         ref var mapper = ref GetOrAddDefault(mapperId, out var exists);
 
         if (exists)
         {
-            mapper.AddSourceTryGet |= isSourceNullable;
-            mapper.AddTargetTryGet |= isTargetNullable;
+            return mapper;
+        }
+        
+        if (source.Type.Id == target.Type.Id)
+        {
+            return new(this, ref mapper, mapperId, source, source, GenerateOn.None, dictionaryContext);
+        }
+        
+        return new(this, ref mapper, mapperId, target, source, ignore, dictionaryContext);
+    }
 
+    internal TypeMap GetOrAdd(
+        TypeMeta source, 
+        TypeMeta target, 
+        GenerateOn ignore, 
+        bool isSourceNullable = false,
+        bool isTargetNullable = false, 
+        bool dictionaryContext = false)
+    {
+        var mapperId = TypeMap.GetId(source.Id, target.Id);
+
+        ref var mapper = ref GetOrAddDefault(mapperId, out var exists);
+
+        if (exists)
+        {
             return mapper;
         }
 
-        #endregion
+        return source.Id == target.Id
+            ? new(this, ref mapper, mapperId, source, source, GenerateOn.None, isSourceNullable, isSourceNullable, dictionaryContext)
+            : new(this, ref mapper, mapperId, source, target, ignore, isSourceNullable, isTargetNullable, dictionaryContext);
+    }
 
-        #region Source
+    internal MemberMeta CreateMember(ITypeSymbol item, string name)
+    {
+        var sourceType = Types.GetOrAdd(item);
+        
+        return new(
+            sourceType.Id,
+            name,
+            sourceType,
+            isNullable: item.IsNullable());
+    }
 
-        var typeMapId = TypeMap.GetId(sourceId, sourceId);
+    internal void RenderExtra(Action<string, string> addSource)
+    {
+        StringBuilder code = new(@"namespace SourceCrafter.Mappify;
 
-        ref var sourceType = ref Types.GetOrAddDefault(typeMapId, out var existA);
+public static partial class Mappings
+{");
+        var len = code.Length;
 
-        if (!existA) sourceType = new(Types, sourceId, source);
-
-        ref var sourceMapper = ref GetOrAddDefault(typeMapId, out exists);
-
-        if (!exists)
+        foreach (var item in Types.UnsafeAccessors)
         {
-            new TypeMap(this, ref sourceMapper, typeMapId, sourceType, sourceType, Applyment.None) { AddSourceTryGet = isSourceNullable };
-        }
-        else
-        {
-            sourceMapper.AddSourceTryGet |= isSourceNullable;
-        }
-
-        #endregion
-
-        #region Returns if is same type mapper
-
-        if (sourceId == targetId)
-        {
-            sourceMapper.AddSourceTryGet |= isTargetNullable;
-
-            return sourceMapper; // Is same type, so same type mapper will be returned
+            item.Render(code);
         }
 
-        #endregion
+        if (len == code.Length) return;
 
-        #region Target
-
-        ref var targetType = ref Types.GetOrAddDefault(targetId, out exists);
-
-        if (!exists) targetType = new(Types, targetId, target);
-
-        typeMapId = TypeMap.GetId(targetId, targetId);
-
-        ref var targetMapper = ref GetOrAddDefault(typeMapId, out exists);
-
-        if (!exists)
-        {
-            new TypeMap(this, ref targetMapper, typeMapId, targetType, targetType, Applyment.None) { AddSourceTryGet = isTargetNullable };
-        }
-        else
-        {
-            targetMapper.AddTargetTryGet |= isTargetNullable;
-        }
-
-        #endregion
-
-        #region Final Mapper
-
-        return new (this, ref mapper, mapperId, sourceType, targetType, ignore)
-        {
-            AddSourceTryGet = isSourceNullable,
-            AddTargetTryGet = isTargetNullable
-        };
-
-        #endregion
+        addSource("MappingExtras", code.Append("\n}").ToString());
     }
 }

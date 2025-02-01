@@ -131,11 +131,11 @@ internal sealed partial class MappingSet
     /// <summary>
     /// Creates a new instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based from a given <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@"""/>
     /// </summary>
-    /// <param name=""source"">Data source to be mappped</param>");
+    /// <param name=""source"">Data source to be mapped</param>");
 
             if (targetCollInfo.ItemDataType.IsRecursive)
                 code.Append(@"
-    /// <param name=""depth"">Depth index for recursivity control</param>
+    /// <param name=""depth"">Depth index for recursion control</param>
     /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
 
             code.Append(@"
@@ -150,7 +150,7 @@ internal sealed partial class MappingSet
 
                 if (collMapInfo.CreateArray)
                 {
-                    code.Append(@"global::System.Array.Empty<").Append(targetItemFullTypeName).Append(">()");
+                    code.Append("global::System.Array.Empty<").Append(targetItemFullTypeName).Append(">()");
                 }
                 else
                 {

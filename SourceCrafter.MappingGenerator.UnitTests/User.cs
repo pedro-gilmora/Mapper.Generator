@@ -1,8 +1,7 @@
 ﻿//using SourceCrafter.Mapping.Attributes;
 //using SourceCrafter.Mapping.Constants;
 
-using SourceCrafter.Bindings.Attributes;
-using SourceCrafter.Bindings.UnitTests;
+using SourceCrafter.Mappify.Attributes;
 
 using System.Collections.ObjectModel;
 using System.Text.Json.Serialization;
@@ -14,7 +13,7 @@ public partial class User : IUserPerson2, IContactableUser //: IUser
     public readonly int? Id;
     internal string FullName
     {
-    get => $"{LastName?.Trim()}, {FirstName?.Trim()}";
+        get => $"{LastName?.Trim()}, {FirstName?.Trim()}";
         set => 
             (FirstName, LastName) = value?.Split(", ") switch
             {
@@ -26,9 +25,10 @@ public partial class User : IUserPerson2, IContactableUser //: IUser
     public string FirstName { get; set; } = null!;
     public string? LastName { get; set; }
     public int Age { get; set; }
+    [Ignore]
     public string? Unwanted { get; set; }
     public DateTime DateOfBirth { get; set; }
-    [Bind(nameof(UserDto.TotalAmount))]
+    [Map(nameof(UserDto.TotalAmount))]
     public double? Balance { get; set; }
     [Max(2)]
     //public IEnumerable<User> Asignees { get; set; } = [];
@@ -93,7 +93,7 @@ public interface IContactableUser
     List<IContact> Contacts { get; }
 }
 
-[JsonConverter(typeof(JsonNumberEnumConverter<byte>))]
+[JsonConverter(typeof(JsonNumberEnumConverter<ContactType>))]
 public enum ContactType
 {
     Email,

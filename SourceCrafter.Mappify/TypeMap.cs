@@ -1,664 +1,817 @@
-using Microsoft.CodeAnalysis;
-
-using SourceCrafter.Helpers;
-
 using System;
-using System.Data.SqlTypes;
-using System.Linq;
+using System.Collections.Generic;
+using System.Reflection;
 using System.Text;
-
-using static SourceCrafter.Helpers.Extensions;
 
 namespace SourceCrafter.Mappify;
 
+internal delegate bool CacheCreator(string item, out string cachedItem);
+
 internal sealed class TypeMap
 {
-    static int id = 0;
-    private readonly Action<StringBuilder, string, string> _mapper = null!, _reverseMapper = null!;
-    private MappingKind _mappingKind;
-    private readonly Mappers _mappers;
-    private readonly TypeMeta _source, _target;
+    //private MappingKind _mappingKind;
+    // private readonly Mappers _mappers;
     internal readonly int Id;
-    internal readonly bool IsValid = true;
-    private readonly bool _ignoreTargetType, _ignoreSourceType;
-    private readonly int _targetMemberCount, _sourceMemberCount;
-    internal bool AddTargetTryGet, AddSourceTryGet;
-    private readonly bool isTargetRecursive, isSourceRecursive, hasComplexSTTMembers;
-    internal readonly TypeMap ItemMap;
-    private bool _isScalar;
+    //private readonly bool _ignoreTargetType, _ignoreSourceType;
+    //private readonly int _targetMemberCount, _sourceMemberCount;
+    // internal bool AddTargetTryGet, AddSourceTryGet;
+    //private readonly bool isTargetRecursive, isSourceRecursive, hasComplexSTTMembers;
+    private readonly Action<StringBuilder, Action<StringBuilder>>? _mapper = null, _reverseMapper = null;
+    private readonly Action<StringBuilder>? _members = null, _reverseMembers = null;
+    private readonly ValueBuilder _value, _reverseValue;
 
-    private readonly string
-        MethodName,
-        ReverseMethodName;
+    private readonly TypeMeta _targetType, _sourceType;
+    // private readonly CollectionMapping _collectionMap, _collectionReverseMap;
+    private readonly bool
+        _areSameType,
+        // _isCollection,
+        // _isScalar,
+        // _hasMapping, 
+        // _hasReverseMapping,
+        _requiresMethod,
+        _requiresReverseMethod,
+        _isValid = true;
 
-    private readonly bool AreSameType;
-    private readonly TypeMeta TargetType;
-    private readonly TypeMeta SourceType;
-    private readonly bool IsCollection;
-    private readonly CollectionMapping CollectionMap, CollectionReverseMap;
-    private readonly bool HasScalarConversion, HasReverseScalarConversion, HasMapping, HasReverseMapping;
+    private bool _codeCreated, _isExtraCode;
+
+    private readonly string _methodName, _reverseMethodName, _updateMethod, _reverseUpdateMethodName;
+    private readonly HashSet<Action<StringBuilder>> _extraMappers = [];
+    private readonly bool _isSameType;
+
+    // private readonly bool _useValueCast, _useReverseValueCast;
 
     public TypeMap(
         Mappers mappers,
-        ref TypeMap _this,
+        // ReSharper disable once RedundantAssignment
+        ref TypeMap @this,
         int id,
         TypeMeta source,
         TypeMeta target,
-        Applyment ignore,
-        MemberContext sourceCtx = default,
-        MemberContext targetCtx = default)
+        GenerateOn ignore,
+        bool sourceIsNullable,
+        bool targetIsNullable,
+        bool dictionaryContext
+    ) :
+
+        this(
+            mappers,
+            ref @this,
+            id,
+            new(target.Id, "target", target, isNullable: targetIsNullable),
+            new(source.Id, "source", source, isNullable: sourceIsNullable),
+            ignore, dictionaryContext)
     {
-        _this = this;
+    }
 
-        var sameType = AreSameType = target.Id == source.Id;
+#pragma warning disable CS8618, CS9264
+    internal TypeMap(
+#pragma warning restore CS8618, CS9264
+        Mappers mappers,
+        // ReSharper disable once RedundantAssignment
+        ref TypeMap @this,
+        int id,
+        MemberMeta target,
+        MemberMeta source,
+        GenerateOn ignore,
+        bool dictionaryContext
+    )
+    {
+        @this = this;
 
-        if (sameType)
+        var sourceType = source.Type;
+        var targetType = target.Type;
+
+        var sameType = _areSameType = targetType.Id == sourceType.Id;
+
+        _updateMethod = _reverseUpdateMethodName = "Update";
+
+        if (_isSameType = sameType)
         {
-            MethodName = ReverseMethodName = "Copy";
+            _methodName = _reverseMethodName = "Copy";
         }
         else
         {
-            MethodName = "To" + target.SanitizedName;
-            ReverseMethodName = "To" + source.SanitizedName;
+            _methodName = "To" + targetType.SanitizedName;
+            _reverseMethodName = "To" + sourceType.SanitizedName;
         }
-
-        _mappers = mappers;
 
         Id = id;
-        _source = source;
-        _target = target;
-        AreSameType = target.Id == source.Id;
-        TargetType = target;
-        SourceType = source;
+        _targetType = targetType;
+        _sourceType = sourceType;
 
-        if (IsCollection = source.IsCollection || target.IsCollection)
+        if (/*_isCollection = */sourceType.IsCollection || targetType.IsCollection)
         {
-            ItemMap = mappers.GetOrAdd(source.Collection.ItemType, target.Collection.ItemType, ignore,
-                source.Collection.IsItemNullable, target.Collection.IsItemNullable);
+            _isValid = false;
+            return;
+            //     var itemMap = mappers.GetOrAdd(
+            //         sourceType.Collection.ItemType, 
+            //         targetType.Collection.ItemType, 
+            //         ignore,
+            //         sourceType.Collection.IsItemNullable, 
+            //         targetType.Collection.IsItemNullable);
+            //
+            //     if (!itemMap._isValid ||
+            //         !(sourceType.Collection.ItemType.HasZeroArgsCtor && targetType.Collection.ItemType.HasZeroArgsCtor))
+            //     {
+            //         _isValid = false;
+            //
+            //         return;
+            //     }
+            //
+            //     itemMap._targetType.IsRecursive |= itemMap._targetType.IsRecursive;
+            //     itemMap._sourceType.IsRecursive |= itemMap._sourceType.IsRecursive;
+            //
+            //     // var collectionMap = BuildCollectionMapping(sourceType.Collection, targetType.Collection, _methodName);
+            //     // var collectionReverseMap = BuildCollectionMapping(targetType.Collection, sourceType.Collection, _reverseMethodName);
+            //
+            //     MemberMeta  
+            //         sourceItemMember = new(id, "sourceItem", itemMap._sourceType),
+            //         targetItemMember = new(id, "targetItem", itemMap._targetType);
+            //
+            //     if (sourceItemMember.Discard(targetItemMember, true, out var sourceCtx, out var targetCtx))
+            //     {
+            //         _isValid = false;
+            //         return;
+            //     }
+            //
+            //     if (_isValid = !targetCtx.Ignore)
+            //     {
+            //         _requiresMapperMethod = true;
+            //         
+            //         _value = (code, sourceItem, targetItem) => 
+            //             code.Append(@"
+            // ").Append(_methodName).Append('(').Append(targetItem).Append(", ").Append(sourceItem).Append(')');
+            //     };
+            //
+            //     if (!(_isValid |= !sameType && !sourceCtx.Ignore)) return;
+            //
+            //     _requiresReverseMapperMethod = true;
+            //     
+            //         _reverseValue = (code, sourceItem, targetItem) => 
+            //             AppendMethodCall(code, sourceType.IsValueType, _reverseMethodName, sourceItem).Append(", ").Append(targetItem).Append(')');
+            //         
+            //
+            //     return;
+        }
 
-            if (!ItemMap.IsValid ||
-                !(source.Collection.ItemType.HasZeroArgsCtor && target.Collection.ItemType.HasZeroArgsCtor))
+        if (targetType.HasConversion(sourceType, out var scalarConversion, out var reverseScalarConversion))
+        {
+            if (ignore < GenerateOn.Target && scalarConversion.Exists)
             {
-                IsValid = false;
+                _value = scalarConversion.IsExplicit
+                    ? Assignment.AsCast
+                    : Assignment.AsValue;
 
-                return;
+                _isValid = true;
             }
 
-            ItemMap.TargetType.IsRecursive |= ItemMap.TargetType.IsRecursive;
-            ItemMap.SourceType.IsRecursive |= ItemMap.SourceType.IsRecursive;
-
-            CollectionMap = BuildCollectionMapping(source.Collection, target.Collection, MethodName);
-            CollectionReverseMap = BuildCollectionMapping(target.Collection, source.Collection, ReverseMethodName);
-
-            //Continue collection mappings here
-
-            MemberMeta sourceItemMember = new(id, "sourceItem", true, source.Collection.IsItemNullable, ItemMap.SourceType, source, true, 0);
-            MemberMeta targetItemMember = new(id, "targetItem", true, target.Collection.IsItemNullable, ItemMap.TargetType, target, true, 0);
-
-            if (sourceItemMember.CantMap(true, targetItemMember, out sourceCtx, out targetCtx))
+            if (!sameType && ignore is not (GenerateOn.Source or GenerateOn.Both) && reverseScalarConversion.Exists)
             {
-                IsValid = false;
-                return;
+                _reverseValue = reverseScalarConversion.IsExplicit
+                    ? Assignment.AsCast
+                    : Assignment.AsValue;
+
+                _isValid = true;
             }
+        }
 
-            if (IsValid = !targetCtx.Ignore)
-            {
-                _mapper = (code, source, target) => code.Append(MethodName).Append('(').Append(source).Append(", ").Append(target).Append(')');
-            };
-
-            if (IsValid |= !sameType && !sourceCtx.Ignore)
-
-                _reverseMapper = new CollectionMapper(ItemMap, targetItemMember, sourceItemMember, targetCtx, sourceCtx);
-
+        if (_targetType.IsPrimitive || _sourceType.IsPrimitive || sourceType.IsMemberless || targetType.IsMemberless)
+        {
             return;
         }
 
-        ItemMap = null!;
+        _requiresMethod = _requiresReverseMethod = true;
 
-        if (SourceType.HasConversion(TargetType, out var targetScalarConversion, out var sourceScalarConversion))
+        if (!targetType.IsInterface) _value = Assignment.AsMapper;
+
+        if (!sourceType.IsInterface) _reverseValue = Assignment.AsMapper;
+
+        _mapper = new MapperMethod(targetType, sourceType, _methodName).BuildMethods;
+
+        _reverseMapper = new MapperMethod(sourceType, targetType, _reverseMethodName).BuildMethods;
+
+        var allowLowerCase = sourceType.IsTupleType || targetType.IsTupleType /*, hasMatches = false*/;
+
+        var canUseUnsafeAccessor = mappers.CanUseUnsafeAccessor;
+
+        foreach (var targetMember in targetType.Members)
         {
-            MemberMeta sourceMember = new(id, "source", true, source.Collection.IsItemNullable, ItemMap.SourceType, source, true, 0);
-            MemberMeta targetMember = new(id, "target", true, target.Collection.IsItemNullable, ItemMap.TargetType, target, true, 0);
-
-            if (ignore < Applyment.Target && targetScalarConversion.exists)
+            foreach (var sourceMember in sourceType.Members)
             {
-                //var scalar = targetScalarConversion.isExplicit
-                //    ? $"({TargetType.FullName}){{0}}"
-                //: "{0}";
+                var map = this;
 
-                _mapper = targetScalarConversion.isExplicit 
-                    ? (code, sourceItem) => code.Append('(').Append(TargetType.FullName).Append(')').Append(source)
-                    : (code, sourceItem) => code.Append(source);
-
-                IsValid = HasMapping = _isScalar = HasScalarConversion = true;
-            }
-
-            if (!sameType && ignore is not (Applyment.Source or Applyment.Both) && sourceScalarConversion.exists)
-            {
-                //var scalar = sourceScalarConversion.isExplicit
-                //    ? $"({SourceType.FullName}){{0}}"
-                //    : "{0}";
-
-                _mapper = sourceScalarConversion.isExplicit
-                    ? (code, sourceItem) => code.Append('(').Append(SourceType.FullName).Append(')').Append(source)
-                    : (code, sourceItem) => code.Append(source);
-
-                IsValid = HasReverseMapping = _isScalar = HasReverseScalarConversion = true;
-            }
-        }
-
-        if (TargetType.IsPrimitive || SourceType.IsPrimitive || source.IsMemberless || target.IsMemberless)
-        {
-            return;
-        }
-
-        Action<StringBuilder, string?, string?>? _targetMembers = null, _sourceMembers = null;
-
-        int memberCount = 0, reverseMemberCount = 0;
-
-        var allowLowerCase = source.IsTupleType || target.IsTupleType /*, hasMatches = false*/;
-
-        foreach (var targetMember in source.Members)
-        {
-            foreach (var sourceMember in target.Members)
-            {
-                var memberMappingId = GetId(sourceMember.Type.Id, sourceMember.Type.Id);
-
-                if (Id == memberMappingId)
+                if (!targetMember.Discard(sourceMember, allowLowerCase, out var targetCtx, out var sourceCtx)
+                    && (Id == GetId(sourceMember.Type.Id, sourceMember.Type.Id)
+                        || (map = mappers.GetOrAdd(targetMember, sourceMember, ignore))._isValid))
                 {
-                    if (targetMember.CantMap(allowLowerCase, sourceMember, out var sourceContext, out var targetContext))
-                    {
-                        if (targetMember == sourceMember) break;
+                    var (requiresMethod, copyMethod, updateMethod, requiresReverseMethod, reverseMethod, reverseUpdateMethod, appendValue, reverseAppendValue) =
+                        (map._targetType.Id, map._sourceType.Id) == (targetMember.Type.Id, sourceMember.Type.Id)
+                            ? (map._requiresMethod, map._methodName, map._updateMethod, map._requiresReverseMethod, map._reverseMethodName, map._reverseUpdateMethodName, map._value, map._isSameType ? map._value : map._reverseValue)
+                            : (map._requiresReverseMethod, map._reverseMethodName, map._reverseUpdateMethodName, map._requiresMethod, map._methodName, map._updateMethod, map._isSameType ? map._value : map._reverseValue, map._value);
 
-                        continue;
+                    if (!targetCtx.Ignore
+                        && TryBuildMemberAssignment(
+                            targetMember,
+                            sourceMember,
+                            requiresMethod,
+                            copyMethod,
+                            updateMethod,
+                            canUseUnsafeAccessor,
+                            appendValue!,
+                            out var memberAssignment))
+                    {
+                        _isValid = true;
+                        _members += memberAssignment;
                     }
 
-                    if (!targetContext.Ignore)
+                    if (!sourceCtx.Ignore
+                        && TryBuildMemberAssignment(
+                            sourceMember,
+                            targetMember,
+                            requiresReverseMethod,
+                            reverseMethod,
+                            reverseUpdateMethod,
+                            canUseUnsafeAccessor, 
+                            reverseAppendValue!,                           
+                            out memberAssignment))
                     {
-                        memberCount++;
-                        _targetMembers += _mapper.Build;
+                        _isValid = true;
+                        _reverseMembers += memberAssignment;
                     }
 
-                    if (sourceContext.Ignore || sourceMember.Type.IsInterface || sameType) continue;
-
-                    reverseMemberCount++;
-                    _sourceMembers += _reverseMapper.Build;
-
-                    // IsValid |= 
-                    //     TryCreateMemberMap(
-                    //         sourceMember,
-                    //         targetMember,
-                    //         sourceContext,
-                    //         targetContext,
-                    //         ref _targetMembers)
-                    //     | (!sourceMember.Type.IsInterface && 
-                    //        !sameType &&
-                    //        TryCreateMemberMap(
-                    //           targetMember,
-                    //           sourceMember,
-                    //           targetContext,
-                    //           sourceContext,
-                    //           ref _sourceBuilder));
-
-                    // Determine assignment possibility
-                    // Can be assigned
-
-                    if (!IsValid) IsValid = true;
-                }
-                else if (mappers.GetOrAdd(targetMember, sourceMember, ignore) is { IsValid: true } found)
-                {
-                    if (targetMember.CantMap(allowLowerCase, sourceMember, out var sourceContext, out var targetContext))
+                    if (map.IsExtraCodeFor(this))
                     {
-                        if (targetMember == sourceMember) break;
-
-                        continue;
+                        map._isExtraCode = true;
+                        mappers.Types.UnsafeAccessors.Add(new(map.ToString(), map.BuildMethods));
                     }
 
-                    if (!targetContext.Ignore)
-                    {
-                        memberCount++;
-                        _targetMembers += found._mapper.Build;
-                    }
-
-                    if (sourceContext.Ignore || sourceMember.Type.IsInterface || sameType)
-                        continue;
-
-                    _sourceMembers += found._reverseMapper.Build;
-
-                    //if (_mappingKind == MappingKind.All && found._mappingKind != MappingKind.All && (sourceMember.IsInitOnly || targetMember.IsInitOnly))
-                    //{
-                    //    found._mappingKind = MappingKind.All;
-                    //}
-
-                    //if (true == (IsValid |= HasTargetToSourceMap || HasSourceToTargetMap)
-                    //    && (!found.TargetType.IsPrimitive || found.TargetType.IsTupleType
-                    //    || !found.SourceType.IsPrimitive || found.SourceType.IsTupleType))
-                    //{
-                    //    AuxiliarMappings += found.BuildMethods;
-                    //}
+                    break;
                 }
             }
-
-
         }
+
     }
 
-    //private bool TryCreateMemberMap(
-    //    MemberMeta source,
-    //    MemberMeta target,
-    //    MemberContext sourceContext,
-    //    MemberContext targetContext,
-    //    ref Action<StringBuilder>? mapper)
-    //{
-    //    if (targetContext.Ignore || target is not { IsAccessible: true })
-    //    {
-    //        return false;
-    //    }
-
-    //    //if(target)
-
-    //    return true;
-    //}
-
-    //sealed class CollectionMapper(TypeMap map,
-    //    MemberMeta source,
-    //    MemberMeta target,
-    //    MemberContext sourceContext,
-    //    MemberContext targetContext) : IMapper
-    //{
-    //    private string? comma;
-
-    //    public void Build(StringBuilder obj, string? sourceItem = null, string? targetItem = null)
-    //    {
-    //        throw new NotImplementedException();
-    //    }
-    //}
-
-    //sealed class StructuredObjectMapper(TypeMap map,
-    //    MemberMeta source,
-    //    MemberMeta target,
-    //    MemberContext sourceContext) : IMapper
-    //{
-
-    //    private string? comma;
-
-    //    public void Build(StringBuilder obj, string? sourceItem = null, string? targetItem = null)
-    //    {
-    //        throw new NotImplementedException();
-    //    }
-    //}
-
-
-    //sealed class TupleMapper(
-    //    TypeMap map,
-    //    MemberMeta sourceKey,
-    //    MemberMeta sourceValue,
-    //    MemberMeta targetKey,
-    //    MemberMeta targetValue,
-    //    MemberContext sourceContext,
-    //    MemberContext targetContext) : IMapper
-    //{
-    //    private string? leftComma, rightComma;
-
-    //    public void Build(StringBuilder obj, string? sourceItem = null, string? targetItem = null)
-    //    {
-
-    //    }
-    //}
-
-    //sealed class ValueBuilder()
-    //{
-
-    //}
-
-    //sealed class ValueAssignment()
-    //{
-
-    //}
-
-    //sealed class ScalarMapper(
-    //    string targetTypeFullName,
-    //    bool isExplicitCast
-    //    ValueAssignment assign) : IMapper
-    //{
-    //    readonly string template = isExplicitCast
-    //        ? $@"({targetTypeFullName}){{0}}"
-    //        : "{0}";
-
-    //    void IMapper.Build(StringBuilder code, string sourceItem)
-    //    {
-    //    }
-    //}
-
-    //// sealed class KeyValuePairMapper: IMapper
-    //// {
-    ////     internal KeyValuePairMapper(
-    ////         TypeMap map,
-    ////         MemberMeta sourceKey,
-    ////         MemberMeta sourceValue,
-    ////         MemberMeta targetKey,
-    ////         MemberMeta targetValue,
-    ////         MemberContext sourceContext,
-    ////         MemberContext targetContext)
-    ////     {
-    ////     }
-    //// }
-
-    //sealed class KeyValuePairMapper(
-    //        TypeMap map,
-    //        MemberMeta sourceKey,
-    //        MemberMeta sourceValue,
-    //        MemberMeta targetKey,
-    //        MemberMeta targetValue,
-    //        MemberContext sourceContext,
-    //        MemberContext targetContext) : IMapper
-    //{
-    //    public void Build(StringBuilder obj, string? sourceItem = null, string? targetItem = null)
-    //    {
-    //        throw new NotImplementedException();
-    //    }
-    //}
-
-
-
-    //internal interface IMapper
-    //{
-    //    void Build(StringBuilder obj, string? sourceItem = null, string? targetItem = null);
-    //}
-
-    //static void GenerateValue
-    //(
-    //    StringBuilder code,
-    //    string item,
-    //    Action<StringBuilder, string> generateValue,
-    //    bool checkNull,
-    //    bool call,
-    //    bool isValueType,
-    //    string? sourceBang,
-    //    string? defaultSourceBang
-    //)
-    //{
-    //    var indexerBracketPos = item.IndexOf('[');
-
-    //    bool hasIndexer = indexerBracketPos > -1,
-    //        shouldCache = checkNull && call && (hasIndexer || item.Contains('.'));
-
-    //    var itemCache = shouldCache
-    //        ? "_" + (hasIndexer ? item[..indexerBracketPos] : item).Replace(".", "")
-    //        : item;
-
-    //    if (checkNull)
-    //    {
-    //        if (call)
-    //        {
-    //            code.Append(item).Append(" is {} ").Append(itemCache).Append(" ? ");
-
-    //            generateValue(code, itemCache);
-
-    //            code.Append(" : default").Append(defaultSourceBang);
-    //        }
-    //        else
-    //        {
-    //            if (isValueType && defaultSourceBang != null)
-    //            {
-    //                var startIndex = code.Length;
-
-    //                generateValue(code, itemCache);
-
-    //                if (code[startIndex] == '(')
-    //                {
-    //                    var count = code.Length - startIndex;
-
-    //                    code.Replace(item, "(" + item, startIndex, count)
-    //                        .Insert(startIndex + count + 1, " ?? default")
-    //                        .Append(defaultSourceBang).Append(")");
-    //                }
-    //                else
-    //                {
-    //                    code.Append(" ?? default").Append(defaultSourceBang);
-    //                }
-    //            }
-    //            else
-    //            {
-    //                generateValue(code, item);
-
-    //                code.Append(sourceBang);
-    //            }
-    //        }
-    //    }
-    //    else
-    //    {
-    //        generateValue(code, itemCache);
-
-    //        code.Append(sourceBang);
-    //    }
-    //}
-
-    private static CollectionMapping BuildCollectionMapping(CollectionMeta source, CollectionMeta target,
-        string copyMethodName)
+    private bool IsExtraCodeFor(TypeMap other)
     {
-        var isDictionary = source.IsDictionary && target.IsDictionary || CanMap(source, target) ||
-                           CanMap(target, source);
-
-        var iterator = !isDictionary && source.Indexable && target.BackingArray ? "for" : "foreach";
-
-        return new(target.BackingArray,
-            target.BackingArray && !source.Indexable,
-            iterator,
-            !source.Countable && target.BackingArray,
-            target.Method,
-            copyMethodName);
-
-        static bool CanMap(CollectionMeta source, CollectionMeta target) =>
-            source.IsDictionary && target.ItemType.Symbol is INamedTypeSymbol
-            {
-                IsTupleType: true, TupleElements.Length: 2
-            };
+        return other != this &&
+               !_sourceType.IsMemberless && !_targetType.IsMemberless &&
+               (_requiresMethod || _requiresReverseMethod) &&
+               !_isExtraCode;
     }
 
-    internal static int GetId(int typeAId, int typeBId) =>
-        (Math.Min(typeAId, typeAId), Math.Max(typeBId, typeBId)).GetHashCode();
+    //   public bool CreateCollectionMapBuilders(
+    //       MemberMeta source,
+    //       MemberMeta target,
+    //       MemberMeta sourceItem,
+    //       MemberMeta targetItem,
+    //       in CollectionMeta sourceCollInfo,
+    //       in CollectionMeta targetCollInfo,
+    //       in CollectionMapping collMapInfo,
+    //       ValueBuilder buildItemValue,
+    //       out ValueBuilder valueBuilder,
+    //       out ObjectMapper methodBuilder)
+    //   {
+    //       var (itemType, type, isItemNullable, indexable, countable, backingArray, method, countProp, isSourceDictionary) = sourceCollInfo;
+    //       string
+    //           targetFullTypeName = target.Type.ExportFullName,
+    //           sourceFullTypeName = source.Type.ExportFullName,
+    //           targetItemFullTypeName = itemType.FullName,
+    //           copyMethodName = collMapInfo.MethodName,
+    //           updateMethodName = collMapInfo.MethodName;
 
-    //public void DiscoverMappings()
-    //{
-    //    IsValid = IsCollectionMapping(typeMetaA, typeMetaB)
-    //              || IsPrimitiveOrCastMapping(typeMetaA, typeMetaB)
-    //              || HasMemberMappings(typeMetaA, typeMetaB);
-    //}
+    //       var addMethod = collMapInfo.Method;
 
-    private bool IsEnumerableType(string fullNonGenericName, ITypeSymbol type, out CollectionMeta info)
+    //       bool createArray = collMapInfo.CreateArray, redim = collMapInfo.Redim;
+
+    //       bool IsRecursive(out int maxDepth)
+    //       {
+    //           var isRecursive = itemType.IsRecursive;
+
+    //           maxDepth = target.MaxDepth;
+
+    //           if (itemType.IsRecursive)
+    //               maxDepth = target.MaxDepth;
+
+    //           return isRecursive;
+    //       }
+
+    //       bool isFor = collMapInfo.Iterator == "for";
+
+    //       void buildCopy(StringBuilder code)
+    //       {
+    //           string
+    //               targetExportFullXmlDocTypeName = targetFullTypeName.Replace("<", "{").Replace(">", "}"),
+    //               sourceExportFullXmlDocTypeName = sourceFullTypeName.Replace("<", "{").Replace(">", "}"),
+    //               underlyingCollectionType = $"global::System.Collections.Generic.List<{targetItemFullTypeName}>()";
+
+    //           (string defaultType, string initType, Action<StringBuilder, string> returnExpr) = (type, target.Type.IsInterface) switch
+    //           {
+    //               (EnumerableType.ReadOnlyCollection, true) =>
+    //                   ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyReadOnlyCollection",
+    //                    underlyingCollectionType,
+    //                    (code, v) => code.Append("new global::System.Collections.ObjectModel.ReadOnlyCollection<").Append(targetItemFullTypeName).Append(">(").Append(v).Append(")")),
+    //               (EnumerableType.Collection, true) =>
+    //                   ($"global::SourceCrafter.Bindings.CollectionExtensions<{targetItemFullTypeName}>.EmptyCollection",
+    //                    underlyingCollectionType,
+    //                    (code, v) => code.Append(v)),
+    //               _ =>
+    //                   ("new " + targetFullTypeName + "()",
+    //                    targetFullTypeName + "()",
+    //                    new Action<StringBuilder, string>((code, v) => code.Append(v)))
+    //           };
+
+    //           //User? <== UserDto?
+    //           var checkNull = (!targetItem.IsNullable || !itemType.IsValueType) && sourceItem.IsNullable;
+
+    //           string? suffix = (type, type) is (not EnumerableType.Array, EnumerableType.ReadOnlySpan) ? ".AsSpan()" : null;
+
+    //           if (isSourceDictionary)
+    //           {
+    //               code.Append(@"
+    //    /// <summary>
+    //    /// Creates a new instance of <see cref=""")
+    //                   .Append(targetExportFullXmlDocTypeName)
+    //                   .Append(@"""/> based from a given <see cref=""")
+    //                   .Append(sourceExportFullXmlDocTypeName)
+    //                   .Append(@"""/>
+    //    /// </summary>
+    //    /// <param name=""source"">Data source to be mapped</param>");
+
+    //               if (itemType.IsRecursive)
+    //               {
+    //                   code.Append(@"
+    //    /// <param name=""depth"">Depth index for recursion control</param>
+    //    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
+    //               }
+
+    //               code.Append(@"
+    //    public static ")
+    //                   .Append(targetFullTypeName)
+    //                   .AddSpace()
+    //                   .Append(copyMethodName)
+    //                   .Append('(') ;
+
+    //               if (target.Type.IsValueType) code.Append("ref ");
+
+    //               code.Append("this ")
+    //                   .Append(sourceFullTypeName)
+    //                   .Append(" source");
+
+    //               if (itemType.IsRecursive)
+    //               {
+    //                   code.Append(", int depth = 0, int maxDepth = ")
+    //                       .Append(target.MaxDepth)
+    //                       .Append(@")
+    //    {
+    //        if (depth >= maxDepth) 
+    //            return ").Append(defaultType).Append(@";
+    //");
+    //               }
+    //               else
+    //               {
+    //                   code.Append(@")
+    //    {");
+    //               }
+
+    //               code.Append(@"
+    //        var target = ").Append(defaultType).Append(@";
+
+    //        foreach (var item in source)
+    //        {
+    //            target[");
+
+    //               //keyValueMapping!.Key.Invoke(code, "item");
+
+    //               code.Append("] = ");
+
+    //               //keyValueMapping!.Value(code, "item");
+
+    //               code.Append(@";
+    //        }
+
+    //        return target;
+    //    }
+    //");
+    //               return;
+    //           }
+
+    //           code.Append(@"
+    //    /// <summary>
+    //    /// Creates a new instance of <see cref=""").Append(targetExportFullXmlDocTypeName).Append(@"""/> based from a given <see cref=""").Append(sourceExportFullXmlDocTypeName).Append(@"""/>
+    //    /// </summary>
+    //    /// <param name=""source"">Data source to be mapped</param>");
+
+    //           if (itemType.IsRecursive)
+    //               code.Append(@"
+    //    /// <param name=""depth"">Depth index for recursion control</param>
+    //    /// <param name=""maxDepth"">Max of recursion to be allowed to map</param>");
+
+    //           code.Append(@"
+    //    public static ").Append(targetFullTypeName).AddSpace().Append("Update(");
+
+    //           if (target.Type.IsValueType) code.Append("ref ");
+
+    //           code.Append("this ").Append(sourceFullTypeName).Append(@" target");
+
+    //           if (itemType.IsRecursive)
+    //           {
+    //               code.Append(", int depth = 0, int maxDepth = ").Append(target.MaxDepth).Append(@")
+    //    {
+    //        if (depth >= maxDepth) 
+    //            return ");
+
+    //               if (createArray)
+    //               {
+    //                   code.Append("global::System.Array.Empty<").Append(targetItemFullTypeName).Append(">()");
+    //               }
+    //               else
+    //               {
+    //                   code.Append(defaultType);
+    //               }
+
+    //               code.Append(@";
+    //");
+    //           }
+    //           else
+    //           {
+    //               code.Append(@")
+    //    {");
+    //           }
+
+    //           if (createArray)
+    //           {
+    //               if (redim)
+    //               {
+    //                   code.Append(@"
+    //        int len = 0, aux = 16;
+    //        var target = new ").Append(targetItemFullTypeName).Append(@"[aux];
+    //");
+    //               }
+    //               else
+    //               {
+    //                   code.Append(@"
+    //        int len = ");
+
+    //                   if (isFor)
+    //                   {
+    //                       code.Append("source.").Append(countProp);
+    //                   }
+    //                   else
+    //                   {
+    //                       code.Append(0);
+    //                   }
+
+    //                   code.Append(@";
+    //        var target = new ").Append(targetItemFullTypeName).Append('[');
+
+    //                   if (isFor)
+    //                   {
+    //                       code.Append("len");
+    //                   }
+    //                   else
+    //                   {
+    //                       code.Append("source.").Append(countProp);
+    //                   }
+
+    //                   code.Append(@"];
+    //");
+    //               }
+    //           }
+    //           else
+    //           {
+    //               code.Append(@"
+    //        var target = new ").Append(initType).Append(';').Append(@"
+    //");
+    //           }
+
+    //           if (isFor)
+    //           {
+    //               code.Append(@"
+    //        for (int i = 0; i < len; i++)
+    //        {
+    //            target[i] = ");
+
+    //               buildItemValue(code, target, source);
+
+    //               code.Append(@";
+    //        }
+
+    //        return target").Append(suffix).Append(@";
+    //    }
+    //");
+    //           }
+    //           else
+    //           {
+    //               code.Append(@"
+    //        foreach (var item in source)
+    //        {");
+
+    //               if (createArray)
+    //               {
+    //                   code.Append(@"
+    //            target[len");
+
+    //                   if (!redim)
+    //                   {
+    //                       code.Append("++");
+    //                   }
+
+    //                   code.Append("] = ");
+
+    //                   buildItemValue(code, target, source);
+
+    //                   code.Append(";");
+
+    //                   if (redim)
+    //                   {
+    //                       //redim array
+    //                       code.Append(@"
+
+    //            if (aux == ++len)
+    //                global::System.Array.Resize(ref target, aux *= 2);
+    //        }
+
+    //        return (len < aux ? target[..len] : target)").Append(suffix).Append(@";
+    //    }
+    //");
+    //                   }
+    //                   //normal ending
+    //                   else
+    //                   {
+    //                       code.Append(@"
+    //        }
+
+    //        return target").Append(suffix).Append(@";
+    //    }
+    //");
+    //                   }
+    //               }
+    //               else
+    //               {
+    //                   code.Append(@"
+    //            target.").Append(addMethod);
+
+
+    //                   buildItemValue(code, target, source);
+
+    //                   code.Append(@");
+    //        }
+
+    //        return ");
+
+    //                   returnExpr(code, "target");
+
+    //                   code.Append(@";
+    //    }
+    //");
+    //               }
+    //           }
+    //       }
+
+    //       valueBuilder = (code, target, source, checkNull) =>
+    //       {
+    //           code.Append(copyMethodName).Append("(").Append(value);
+
+    //           if (IsRecursive(out var maxDepth))
+    //           {
+    //               code.Append(", __l - 1");
+    //           }
+
+    //           code.Append(")");
+    //       };
+
+    //       methodBuilder = buildCopy;
+
+    //       return true;
+    //   }
+
+    readonly struct MapperMethod(
+        TypeMeta targetType,
+        TypeMeta sourceType,
+        string methodName)
     {
-        if (type.IsPrimitive(true))
+
+
+        readonly bool 
+            isInterface = targetType.IsInterface,
+            isTargetTypeRecursive = targetType.IsRecursive,
+            isSourceValueType = sourceType.IsValueType,
+            isTargetValueType = targetType.IsValueType;
+        readonly string
+            targetFullTypeName = targetType.FullName, 
+            sourceFullTypeName = sourceType.FullName;
+
+        internal void BuildMethods(StringBuilder code, Action<StringBuilder> targetMembers)
         {
-            info = default!;
-            return false;
-        }
+            if (!isInterface)
+            {
+                code.Append(@"
+    public static ")
+                    .Append(targetFullTypeName)
+                .Append(" ")
+                    .Append(methodName).Append('(');
 
-        switch (fullNonGenericName)
-        {
-            case "global::System.Collections.Generic.Dictionary" or "global::System.Collections.Generic.IDictionary"
-                :
-                info = GetCollectionInfo(EnumerableType.Dictionary, GetEnumerableType(type, true));
+                if (isSourceValueType) code.Append("in ");
 
-                return true;
+                code.Append("this ")
+                    .Append(sourceFullTypeName)
+                    .Append(@" source)
+    {
+        ");
 
-            case "global::System.Collections.Generic.Stack"
-                :
-                info = GetCollectionInfo(EnumerableType.Stack, GetEnumerableType(type));
+                if (isTargetValueType)
+                    code.Append(targetFullTypeName)
+                        .Append(@" init = default;
 
-                return true;
+        return Update(ref init, source)");
 
-            case "global::System.Collections.Generic.Queue"
-                :
-                info = GetCollectionInfo(EnumerableType.Queue, GetEnumerableType(type));
-
-                return true;
-
-            case "global::System.ReadOnlySpan"
-                :
-
-                info = GetCollectionInfo(EnumerableType.ReadOnlySpan, GetEnumerableType(type));
-
-                return true;
-
-            case "global::System.Span"
-                :
-                info = GetCollectionInfo(EnumerableType.Span, GetEnumerableType(type));
-
-                return true;
-
-            case "global::System.Collections.Generic.ICollection" or
-                "global::System.Collections.Generic.IList" or
-                "global::System.Collections.Generic.List"
-                :
-                info = GetCollectionInfo(EnumerableType.Collection, GetEnumerableType(type));
-
-                return true;
-
-            case "global::System.Collections.Generic.IReadOnlyList" or
-                "global::System.Collections.Generic.ReadOnlyList" or
-                "global::System.Collections.Generic.IReadOnlyCollection" or
-                "global::System.Collections.Generic.ReadOnlyCollection"
-                :
-                info = GetCollectionInfo(EnumerableType.ReadOnlyCollection, GetEnumerableType(type));
-
-                return true;
-
-            case "global::System.Collections.Generic.IEnumerable"
-                :
-                info = GetCollectionInfo(EnumerableType.Enumerable, GetEnumerableType(type));
-
-                return true;
-
-            default:
-                if (type is IArrayTypeSymbol { ElementType: { } elType })
-                {
-                    info = GetCollectionInfo(EnumerableType.Array, elType);
-
-                    return true;
-                }
                 else
-                    foreach (var item in type.AllInterfaces)
-                        if (IsEnumerableType(item.ToGlobalNonGenericNamespace(), item, out info))
-                            return true;
+                    code.Append("return Update(new ")
+                        .Append(targetFullTypeName)
+                        .Append("(), source)");
 
-                break;
+                code.Append(@";
+    }
+");
+            }
+
+            code.Append(@"
+    public static ")
+                .Append(targetFullTypeName)
+                .Append(" Update(");
+
+            if (isTargetValueType) code.Append("ref ");
+
+            code.Append("this ")
+                .Append(targetFullTypeName)
+                .Append(" target, ")
+                .Append(sourceFullTypeName)
+                .Append(@" source");
+
+            if (isTargetTypeRecursive) code.Append(", int __l = 0");
+
+            code.Append(@")
+    {");
+
+            targetMembers(code);
+
+            code.Append(@"
+
+        return target;
+    }
+");
+        }
+    }
+
+    //readonly struct ValueState(
+    //    string )
+    //{
+
+    //}
+
+
+    private static bool CacheMemberItem(string item, out string cachedItem)
+    {
+        cachedItem = item.Replace(".", "");
+
+        return cachedItem.Length < item.Length;
+    }
+
+    private static bool CacheIndexedItem(string item, out string cachedItem)
+    {
+        if (item.IndexOf('[') is > -1 and var idx)
+        {
+            cachedItem = '_' + item[..idx] + "Item";
+            return true;
         }
 
-        info = default!;
-
+        cachedItem = null!;
         return false;
     }
 
-    private static ITypeSymbol GetEnumerableType(ITypeSymbol enumerableType, bool isDictionary = false)
+    private static bool TryBuildMemberAssignment(
+        MemberMeta target,
+        MemberMeta source,
+        bool useFillMethod,
+        string updateMethodName,
+        string copyMethod,
+        bool canUseUnsafeAccessor,
+        ValueBuilder appendValue,
+        out Action<StringBuilder> assigner)
     {
-        if (isDictionary)
-            return ((INamedTypeSymbol)enumerableType)
-                .AllInterfaces
-                .First(i => i.Name.StartsWith("IEnumerable"))
-                .TypeArguments
-                .First();
+        // Si se requiere unsafe accessor y no está permitido, salimos
+        if (target.UseUnsafeAccessor && !canUseUnsafeAccessor)
+        {
+            assigner = null!;
+            return false;
+        }
 
-        return ((INamedTypeSymbol)enumerableType)
-            .TypeArguments
-            .First();
+        // Configurar recursividad y accessor del padre
+        bool recursive = false;
+        bool isParentValueType = false;
+
+        if (target.OwningType is { } owningType)
+        {
+            recursive = owningType.IsRecursive && target.MaxDepth > 0;
+            isParentValueType = owningType.IsValueType;
+        }
+
+        // Consolidamos todos los datos en una estructura inmutable
+        Assignment state = new (
+            target.Type.FullName,
+            "." + target.Name,
+            source.Type.FullName,
+            "." + source.Name,
+            target.UseUnsafeAccessor,
+            target.Type.IsValueType,
+            target.IsNullable,
+            source.Type.IsValueType,
+            source.IsNullable,
+            recursive,
+            isParentValueType,
+            updateMethodName,
+            copyMethod,
+            target.UnsafeFieldAccesor,
+            target.MaxDepth);
+
+        // Selección de la asignación según los casos
+        assigner = target.Type.IsMemberless && target.Type.IsPrimitive
+            ? code => state.DirectAssignment(code, appendValue)
+            : !source.Type.IsMemberless && target.IsNullable
+                ? code => state.NullableAssignment(code, appendValue)
+                : useFillMethod
+                    ? code => state.UpdateMethodAssignment(code, appendValue)
+                    : code => state.DefaultAssignment(code, appendValue);
+
+        return true;
     }
 
-    private CollectionMeta GetCollectionInfo(EnumerableType enumerableType, ITypeSymbol typeSymbol)
-    {
-        var itemDataType = _mappers.Types.GetOrAdd(typeSymbol = typeSymbol.AsNonNullable(), null,
-            enumerableType == EnumerableType.Dictionary);
+    //private static CollectionMapping BuildCollectionMapping(CollectionMeta source, CollectionMeta target,
+    //    string copyMethodName)
+    //{
+    //    var isDictionary = (target.IsDictionary && source.IsDictionary)
+    //                       || (target.IsDictionary && isTupleEnumerator(source.ItemType))
+    //                       || (source.IsDictionary && isTupleEnumerator(target.ItemType));
 
-        return enumerableType switch
+    //    var iterator = !isDictionary && source.Indexable && target.BackingArray ? "for" : "foreach";
+
+    //    return new(
+    //        target.BackingArray,
+    //        target.BackingArray && !source.Indexable,
+    //        iterator,
+    //        !source.Countable && target.BackingArray,
+    //        target.Method,
+    //        copyMethodName);
+
+    //    static bool isTupleEnumerator(TypeMeta itemType) =>
+    //        itemType is { Symbol: INamedTypeSymbol { IsTupleType: true, TupleElements.Length: 2 } };
+    //}
+
+    internal static int GetId(int typeAId, int typeBId) =>
+        (Math.Min(typeAId, typeBId), Math.Max(typeAId, typeBId)).GetHashCode();
+
+    public void BuildFile(Action<string, string> addSource, int i)
+    {
+        StringBuilder code = new();
+
+        BuildMethods(code);
+
+        if (code.Length == 0) return;
+
+        code.Insert(0, @"namespace SourceCrafter.Mappify;
+
+public static partial class Mappings
+{");
+
+        addSource(
+            $"{i}_{_sourceType.Symbol.MetadataName}_{_targetType.Symbol.MetadataName}",
+            code.Append("}").ToString());
+    }
+
+    private void BuildMethods(StringBuilder code)
+    {
+        if (!_isValid || _codeCreated) return;
+
+        _codeCreated = true;
+
+        if(_members is not null) _mapper?.Invoke(code, _members);
+
+        if (!_areSameType && _reverseMembers is not null) _reverseMapper?.Invoke(code, _reverseMembers);
+
+        foreach (var extraMapper in _extraMappers)
         {
-#pragma warning disable format
-            EnumerableType.Dictionary =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    true,
-                    true,
-                    false,
-                    "Add",
-                    "Count"),
-            EnumerableType.Queue =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    false,
-                    true,
-                    false,
-                    "Enqueue",
-                    "Count"),
-            EnumerableType.Stack =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    false,
-                    true,
-                    false,
-                    "Push",
-                    "Count"),
-            EnumerableType.Enumerable =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    false,
-                    false,
-                    true,
-                    null,
-                    "Length"),
-            EnumerableType.ReadOnlyCollection =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    true,
-                    true,
-                    false,
-                    "Add",
-                    "Count"),
-            EnumerableType.ReadOnlySpan =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    true,
-                    true,
-                    true,
-                    null,
-                    "Length"),
-            EnumerableType.Collection =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    true,
-                    true,
-                    false,
-                    "Add",
-                    "Count"),
-            EnumerableType.Span =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    true,
-                    true,
-                    true,
-                    null,
-                    "Length"),
-            _ =>
-                new(itemDataType,
-                    enumerableType,
-                    typeSymbol.IsNullable(),
-                    true,
-                    true,
-                    true,
-                    null,
-                    "Length")
-#pragma warning restore format
-        };
+            extraMapper(code);
+        }
+    }
+
+    public override string ToString()
+    {
+        return $"{_sourceType.ExportFullName} <=> {_targetType.ExportFullName}";
     }
 }
 
-readonly record struct CollectionMeta(
+internal readonly record struct CollectionMeta(
     TypeMeta ItemType,
     EnumerableType Type,
     bool IsItemNullable,
@@ -669,6 +822,28 @@ readonly record struct CollectionMeta(
     string CountProp)
 {
     internal readonly bool IsDictionary = Type is EnumerableType.Dictionary;
+
+    public void Deconstruct(
+        out TypeMeta itemType,
+        out EnumerableType type,
+        out bool isItemNullable,
+        out bool indexable,
+        out bool countable,
+        out bool backingArray,
+        out string? method,
+        out string countProp,
+        out bool isDictionary)
+    {
+        itemType = ItemType;
+        type = Type;
+        isItemNullable = IsItemNullable;
+        indexable = Indexable;
+        countable = Countable;
+        backingArray = BackingArray;
+        method = Method;
+        countProp = CountProp;
+        isDictionary = IsDictionary;
+    }
 };
 
 internal record struct CollectionMapping(
@@ -678,3 +853,242 @@ internal record struct CollectionMapping(
     bool Redim,
     string? Method,
     string MethodName);
+
+internal delegate void ValueBuilder(in Assignment state, StringBuilder code, bool preventNullCheck = false);
+
+internal readonly struct Assignment(
+    string targetTypeFullName,
+    string targetMemberName,
+    string sourceTypeFullName,
+    string sourceMemberName,
+    bool useUnsafeAccessor,
+    bool isTargetValueType,
+    bool isTargetNullable,
+    bool isSourceValueType,
+    bool isSourceNullable,
+    bool recursive,
+    bool isParentValueType,
+    string copyMethodName,
+    string updateMethodName,
+    string unsafeFieldAccesor,
+    int maxDepth)
+{
+    private readonly string 
+        sourceMemberName = sourceMemberName, 
+        copyMethodName = copyMethodName, 
+        targetTypeFullName = targetTypeFullName, 
+        sourceTypeFullName = sourceTypeFullName;
+
+    private readonly bool 
+        isTargetValueType = isTargetValueType,
+        isSourceValueType = isSourceValueType,
+        isSourceNullable = isSourceNullable,
+        isTargetNullable = isTargetNullable;
+
+    internal void DirectAssignment(StringBuilder code, ValueBuilder appendValue)
+    {
+        code.Append(@"
+        target")
+            .Append(targetMemberName)
+            .Append(" = ");
+
+        appendValue(this, code);
+        
+        code.Append(";");
+    }
+
+    internal void NullableAssignment(StringBuilder code, ValueBuilder appendValue)
+    {
+        if (ShouldAppendNewLine(code))
+            code.AppendLine();
+
+        code.Append(@"
+        if (source")
+            .Append(sourceMemberName)
+            .Append(AppendNullCheck(isSourceValueType, isSourceNullable));
+
+        if (recursive)
+            code.Append(" && __l <= ").Append(maxDepth);
+
+        code.AppendLine(")");
+
+        code.Append(@"
+            if(target")
+            .Append(targetMemberName)
+            .Append(AppendNullCheck(isTargetValueType, isTargetNullable))
+            .Append(") ");
+
+        AppendAssignmentCall(code);
+
+        code.AppendLine()
+            .Append(@"
+            else ");
+
+        if (useUnsafeAccessor)
+            AppendTargetValue(code);
+        else
+            code.Append("target").Append(targetMemberName);
+
+        code.Append(" = ");
+
+        appendValue(this, code);
+        
+        code.AppendLine(";")
+            .Append(@"
+        else ");
+
+        if (useUnsafeAccessor)
+            AppendTargetValue(code);
+        else
+            code.Append("target").Append(targetMemberName);
+
+        code.AppendLine(" = default;");
+    }
+
+    internal void UpdateMethodAssignment(StringBuilder code, ValueBuilder _)
+    {
+        code.Append(@"
+        ");
+
+        AppendAssignmentCall(code);
+    }
+
+    internal void DefaultAssignment(StringBuilder code, ValueBuilder appendValue)
+    {
+        code.Append(@"
+        ");
+
+        if (useUnsafeAccessor)
+            AppendTargetValue(code);
+        else
+            code.Append("target").Append(targetMemberName);
+        
+        code.Append(" = ");
+
+        appendValue(this, code);
+        
+        code.Append(";");
+    }
+
+    internal void AppendTargetValue(StringBuilder code)
+    {
+        code.Append(unsafeFieldAccesor).Append("(");
+
+        if (isParentValueType) code.Append("ref ");
+
+        code.Append("target)");
+    }
+
+    private void AppendAssignmentCall(StringBuilder code)
+    {
+        code.Append(updateMethodName).Append('(');
+
+        if (useUnsafeAccessor)
+        {
+            if (isTargetValueType)
+            {
+                code.Append("ref ");
+
+                if (isTargetNullable)
+                {
+                    code.Append("UnNull(ref ");
+
+                    AppendTargetValue(code);
+
+                    code.Append(")");
+                }
+                else
+                {
+                    AppendTargetValue(code);
+                }
+            }
+            else
+            {
+                AppendTargetValue(code);
+
+                if (isTargetNullable)
+                    code.Append('!');
+            }
+        }
+        else
+        {
+            if (isTargetValueType)
+                code.Append("ref ");
+
+            code.Append("target").Append(targetMemberName);
+        }
+
+        code.Append(", source").Append(sourceMemberName);
+
+        if (isSourceNullable)
+            code.Append(isSourceValueType ? ".Value" : "!");
+
+        if (recursive)
+            code.Append(", __l");
+
+        code.Append(");");
+    }
+
+    internal static void AsValue(in Assignment state, StringBuilder code, bool dontChecknull = false)
+    {
+        code.Append("source").Append(state.sourceMemberName);
+
+        if (dontChecknull || state.isSourceNullable || !state.isSourceNullable) return;
+
+        if (state.isSourceNullable && state.isSourceValueType)
+            code.Append(".HasValue ? source").Append(state.sourceMemberName).Append(".Value : default!");
+        else
+            code.Append(" {} source").Append(state.sourceMemberName).Append(" ? source").Append(state.sourceMemberName)
+                .Append(" : default");
+    }
+
+    internal static void AsCast(in Assignment state, StringBuilder code, bool dontCheckNull = false)
+    {
+        code.Append('(')
+            .Append(state.targetTypeFullName)
+            .Append(")");
+
+        //code.Append("/*").Append(state).Append("*/");
+
+        if (!dontCheckNull && !state.isTargetNullable && state.isSourceNullable && state.isSourceValueType)
+            code.Append("(source")
+                .Append(state.sourceMemberName)
+                .Append(" ?? default(").Append(state.sourceTypeFullName).Append("))");
+        else
+            code.Append("source")
+                .Append(state.sourceMemberName);
+    }
+
+    internal static void AsMapper(in Assignment state, StringBuilder code, bool dontCheckNull = false)
+    {
+        code.Append("source").Append(state.sourceMemberName);
+
+        if (!dontCheckNull && state.isSourceNullable) code.Append("?");
+
+        code.Append(".").Append(state.copyMethodName).Append("()");
+    }
+
+    private static bool ShouldAppendNewLine(StringBuilder code) => code[^1] is ';' or '{';
+
+    private static string AppendNullCheck(bool isValueType, bool isNullable) =>
+        isValueType && isNullable ? ".HasValue" : " is not null";
+
+    public override string ToString()
+    {
+        return $@"targetTypeFullName={targetTypeFullName},
+targetMemberName={targetMemberName},
+sourceTypeFullName={sourceTypeFullName},
+sourceMemberName={sourceMemberName},
+useUnsafeAccessor={useUnsafeAccessor},
+isTargetValueType={isTargetValueType},
+isTargetNullable={isTargetNullable},
+isSourceNullable={isSourceNullable},
+isSourceValueType={isSourceValueType},
+recursive={recursive},
+isParentValueType={isParentValueType},
+copyMethodName={copyMethodName},
+updateMethodName={updateMethodName},
+unsafeFieldAccesor={unsafeFieldAccesor},
+maxDepth={maxDepth}";
+    }
+}

@@ -98,17 +98,3 @@ public class EnumsTest
         ((MappingKind)6).TryGetDescription(out _).Should().BeFalse();
     }
 }
-
-[Extend]
-public enum Status
-{
-    NotStarted,
-    [Description("Transaction was stopped")]
-    Stopped,
-    [Description("Transaction has been started")]
-    Started,
-    [Description("Transaction has been cancelled by user")]
-    Cancelled,
-    [Description("Transaction had an external failure")]
-    Failed
-}

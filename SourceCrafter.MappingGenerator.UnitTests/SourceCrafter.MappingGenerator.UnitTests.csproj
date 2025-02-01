@@ -1,12 +1,17 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net8.0</TargetFramework>
+		<TargetFramework>net9.0</TargetFramework>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<LangVersion>latest</LangVersion>
-		<Configurations>Debug;Release;Test;Pack;Debug SG</Configurations>
+		<Configurations>Debug;Release;Test;Pack;DebugSGen</Configurations>
 	</PropertyGroup>
+
+	<ItemGroup>
+	  <Compile Remove="EnumsTest.cs" />
+	  <Compile Remove="Test.cs" />
+	</ItemGroup>
 	
 	<ItemGroup>
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
@@ -24,12 +29,12 @@
 			<PrivateAssets>all</PrivateAssets>
 		</PackageReference>
 	</ItemGroup>
-
+	
 	<ItemGroup>
-		<ProjectReference Include="..\SourceCrafter.MappingGenerator\SourceCrafter.Bindings.csproj" OutputItemType="Analyzer" />
+	  <ProjectReference Include="..\SourceCrafter.Mappify\SourceCrafter.Mappify.csproj" OutputItemType="Analyzer" />
 	</ItemGroup>
 
-	<!--<PropertyGroup Condition=" $(Configuation) == 'Debug' Or $(Configuation) == 'Debug SG' ">
+	<!--<PropertyGroup Condition=" $(Configuation) == 'Debug' Or $(Configuation) == 'DEBUG_SG' ">
 		<EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>
 		<CompilerGeneratedFilesOutputPath>GeneratedFiles</CompilerGeneratedFilesOutputPath>
 	</PropertyGroup>-->

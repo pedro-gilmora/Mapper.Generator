@@ -6,7 +6,11 @@
 
 //Testing purpose
 
-using SourceCrafter.Bindings.UnitTests;
+//using SourceCrafter.Mappify.UnitTests;
+
+using SourceCrafter.Mappify.Attributes;
+
+using System.ComponentModel;
 
 namespace SourceCrafter.UnitTests;
 
@@ -16,11 +20,26 @@ public interface IUserPerson
     //[Map(nameof(WindowsUser.Name))]
     string FullName { get; set; }
     int Age { get; set; }
-    //[Ignore(Ignore.Source)]
+    // [Ignore]
     string Unwanted { get; set; }
     DateTime DateOfBirth { get; set; }
     double Balance { get; set; }
     IEnumerable<IUserPerson> Asignees { get; set; }
     Role? MainRole { get; set; }
     Status Status { get; }
+}
+
+
+[Extend]
+public enum Status
+{
+    NotStarted,
+    [Description("Transaction was stopped")]
+    Stopped,
+    [Description("Transaction has been started")]
+    Started,
+    [Description("Transaction has been cancelled by user")]
+    Cancelled,
+    [Description("Transaction had an external failure")]
+    Failed
 }

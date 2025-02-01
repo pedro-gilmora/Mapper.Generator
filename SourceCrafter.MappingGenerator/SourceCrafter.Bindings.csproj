@@ -30,7 +30,7 @@
 		<PackageIcon>logo.jpeg</PackageIcon>
 		<IsRoslynComponent>true</IsRoslynComponent>
 		<EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
-		<Configurations>Debug;Release;Pack;Debug SG</Configurations>
+		<Configurations>Debug;Release;Pack;DEBUG_SG</Configurations>
 	</PropertyGroup>
 
 	<PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Pack|AnyCPU'">

@@ -11,6 +11,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 using SourceCrafter.Mappify;
+using SourceCrafter.Mappify.Helpers;
 
 
 namespace SourceCrafter.Helpers
@@ -114,34 +115,38 @@ namespace SourceCrafter.Helpers
     private static bool GetStrExpressionOrValue(SemanticModel model, IParameterSymbol paramSymbol,
             AttributeArgumentSyntax? arg, out string value)
         {
-            value = null!;
+            value = "";
 
-            if (arg is not null)
+            if (arg is null)
             {
-                if (model.GetSymbolInfo(arg.Expression).Symbol is IFieldSymbol
-                    {
-                        IsConst: true,
-                        Type.SpecialType: SpecialType.System_String,
-                        ConstantValue: { } val
-                    })
+                if (!paramSymbol.HasExplicitDefaultValue)
                 {
-                    value = val.ToString();
-                    return true;
+                    return false;
                 }
-                else if (arg.Expression is LiteralExpressionSyntax { Token.ValueText: { } valueText } e
-                         && e.IsKind(SyntaxKind.StringLiteralExpression))
-                {
-                    value = valueText;
-                    return true;
-                }
-            }
-            else if (paramSymbol.HasExplicitDefaultValue)
-            {
+
                 value = paramSymbol.ExplicitDefaultValue?.ToString()!;
-                return value != null;
+                return value != "";
             }
 
-            return false;
+            if (model.GetSymbolInfo(arg.Expression).Symbol is IFieldSymbol
+                {
+                    IsConst: true,
+                    Type.SpecialType: SpecialType.System_String,
+                    ConstantValue: { } val
+                })
+            {
+                value = val.ToString();
+                return true;
+            }
+
+            if (arg.Expression is not LiteralExpressionSyntax { Token.ValueText: { } valueText } e
+                || !e.IsKind(SyntaxKind.StringLiteralExpression))
+            {
+                return false;
+            }
+
+            value = valueText;
+            return true;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -275,7 +280,7 @@ namespace SourceCrafter.Helpers
         public static bool IsNullable(this ITypeSymbol typeSymbol)
             => typeSymbol.SpecialType is SpecialType.System_Nullable_T
                || typeSymbol.NullableAnnotation == NullableAnnotation.Annotated
-               || typeSymbol is INamedTypeSymbol { Name: "Nullable" };
+               || typeSymbol.Name is "Nullable" ;
 
         public static bool IsNullable(this IPropertySymbol typeSymbol)
             => typeSymbol.Type.SpecialType is SpecialType.System_Nullable_T
@@ -305,6 +310,9 @@ namespace SourceCrafter.Helpers
             expression = new(e, 0, e.Length);
             return code;
         }
+        
+        public static StringBuilder Remove(this StringBuilder strb, Index idx, int count) => 
+            strb.Remove(idx.IsFromEnd ? strb.Length - idx.Value : idx.Value, count);
 
         public static bool TryGetAsyncType(this ITypeSymbol typeSymbol, out ITypeSymbol factoryType)
         {

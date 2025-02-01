@@ -232,11 +232,11 @@ internal sealed partial class MappingSet
 
             KeyValueMappings
                 stt = map.TargetKeyValueMap = new(
-                    (code, id) => GenerateValue(code, id + "." + targetKeyMember.Name, keyMapping.BuildTargetValue, checkKeyFieldNull, false, targetKeyMember.Type.IsValueType, sourceKeyMember.Bang, sourceKeyMember.DefaultBang),
-                    (code, id) => GenerateValue(code, id + "." + targetValueMember.Name, valueMapping.BuildTargetValue, checkValueFieldNull, false, targetValueMember.Type.IsValueType, targetKeyMember.Bang, targetKeyMember.DefaultBang)),
+                    (code, id) => GenerateValue(code, id + "." + valuePropName, keyMapping.BuildTargetValue, checkKeyFieldNull, false, targetKeyMember.Type.IsValueType, sourceKeyMember.Bang, sourceKeyMember.DefaultBang),
+                    (code, id) => GenerateValue(code, id + "." + targetValueFieldName, valueMapping.BuildTargetValue, checkValueFieldNull, false, targetValueMember.Type.IsValueType, targetKeyMember.Bang, targetKeyMember.DefaultBang)),
                 tts = map.SourceKeyValueMap = new(
-                    (code, id) => GenerateValue(code, id + "." + sourceKeyMember.Name, keyMapping.BuildSourceValue, checkKeyPropNull, false, sourceKeyMember.Type.IsValueType, sourceValueMember.Bang, sourceValueMember.DefaultBang),
-                    (code, id) => GenerateValue(code, id + "." + sourceValueMember.Name, valueMapping.BuildSourceValue, checkValuePropNull, false, sourceValueMember.Type.IsValueType, targetValueMember.Bang, targetValueMember.DefaultBang));
+                    (code, id) => GenerateValue(code, id + "." + keyPropName, keyMapping.BuildSourceValue, checkKeyPropNull, false, sourceKeyMember.Type.IsValueType, sourceValueMember.Bang, sourceValueMember.DefaultBang),
+                    (code, id) => GenerateValue(code, id + "." + targetKeyFieldName, valueMapping.BuildSourceValue, checkValuePropNull, false, sourceValueMember.Type.IsValueType, targetValueMember.Bang, targetValueMember.DefaultBang));
 
             var buildTargetValue = map.BuildTargetValue = (code, sb) =>
             {

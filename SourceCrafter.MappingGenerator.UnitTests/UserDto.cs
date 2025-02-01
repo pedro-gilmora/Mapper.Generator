@@ -1,19 +1,4 @@
-﻿//Testing utils
-
-// Analyzer 
-
-//Testing purpose
-
-//using SourceCrafter.Mapping.Attributes;
-
-using SourceCrafter.Bindings.Attributes;
-using SourceCrafter.Bindings.UnitTests;
-
-using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Xml;
-
-namespace SourceCrafter.UnitTests;
+﻿namespace SourceCrafter.UnitTests;
 
 public partial class UserDto
 {
@@ -24,7 +9,7 @@ public partial class UserDto
 
     public int Age { get; set; }
 
-    [IgnoreBind]
+    // [Ignore]
     public string? Unwanted { get; set; }
 
     public DateTime DateOfBirth { get; set; }

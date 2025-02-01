@@ -4,9 +4,10 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System;
 using System.Collections;
+using SourceCrafter.Helpers;
 
 // ReSharper disable once CheckNamespace
-namespace SourceCrafter.Helpers;
+namespace SourceCrafter.Mappify.Helpers;
 
 public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
 {
@@ -50,19 +51,19 @@ public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
         return size;
     }
 
-    public static int GetPrime(int min)
+    private static int GetPrime(int min)
     {
         if (min < 0)
-            throw new ArgumentException("Hashtable's capacity overflowed and went negative. Check load factor, capacity and the current size of the table");
+            throw new ArgumentException("Hashtable capacity overflowed and went negative. Check load factor, capacity and the current size of the table");
 
-        foreach (int prime in Extensions.Primes)
+        foreach (var prime in Extensions.Primes)
         {
             if (prime >= min)
                 return prime;
         }
 
-        // Outside of our predefined table. Compute the hard way.
-        for (int i = min | 1; i < int.MaxValue; i += 2)
+        // Outside our predefined table. Compute the hard way.
+        for (var i = min | 1; i < int.MaxValue; i += 2)
         {
             if (IsPrime(i) && (i - 1) % HashPrime != 0)
                 return i;
@@ -70,7 +71,7 @@ public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
         return min;
     }
 
-    public static bool IsPrime(int candidate)
+    private static bool IsPrime(int candidate)
     {
         if ((candidate & 1) != 0)
         {
@@ -87,13 +88,13 @@ public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
     // TODO: apply nullability attributes
     public virtual ref TValue? GetValueOrAddDefault(TKey key, out bool exists)
     {
-        Entry[]? entries = _entries!;
+        var entries = _entries!;
 
-        uint hashCode = (uint)_comparer.GetHashCode(key);
+        var hashCode = (uint)_comparer.GetHashCode(key);
 
         uint collisionCount = 0;
-        ref int bucket = ref GetBucket(hashCode);
-        int i = bucket - 1; // Value in _buckets is 1-based
+        ref var bucket = ref GetBucket(hashCode);
+        var i = bucket - 1; // Value in _buckets is 1-based
 
 
         while ((uint)i < (uint)entries.Length)
@@ -127,7 +128,7 @@ public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
         }
         else
         {
-            int count = _count;
+            var count = _count;
             if (count == entries.Length)
             {
                 Resize();
@@ -138,7 +139,7 @@ public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
             entries = _entries;
         }
 
-        ref Entry entry = ref entries![index];
+        ref var entry = ref entries![index];
         entry.id = hashCode;
         entry.next = bucket - 1; // Value in _buckets is 1-based
         entry.Key = key;
@@ -415,7 +416,7 @@ public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
         return highbits;
     }
 
-    public ValueEnumerator Values => new (this);
+    public ValueEnumerator Values => new(this);
 
     public ref struct ValueEnumerator(Map<TKey, TValue> map, int i = -1)
     {
@@ -425,7 +426,7 @@ public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
         public readonly void Dispose() { }
 
         public readonly ValueEnumerator GetEnumerator() => this;
-        
+
         public bool MoveNext()
         {
             return ++i < map._count;
@@ -551,26 +552,26 @@ public class Map<TKey, TValue> : IEnumerable<(TKey, TValue)>
         return new Enumerator(this);
     }
 
-    public sealed class Enumerator(Map<TKey, TValue> map) : IEnumerator<(TKey, TValue)>
+    private sealed class Enumerator(Map<TKey, TValue> map) : IEnumerator<(TKey, TValue)>
     {
-        int i = -1;
-        public (TKey, TValue) Current => map._entries![i];
+        private int _i = -1;
+        
+        public (TKey, TValue) Current => map._entries![_i];
 
-        object IEnumerator.Current => Current;
+        object IEnumerator.Current => map._entries![_i];
 
         public bool MoveNext()
         {
-            return i++ < map._count;
+            return _i++ < map._count;
         }
 
         public void Reset()
         {
-            i = 0;
+            _i = 0;
         }
 
         public void Dispose()
         {
-            throw new NotImplementedException();
         }
     }
 
