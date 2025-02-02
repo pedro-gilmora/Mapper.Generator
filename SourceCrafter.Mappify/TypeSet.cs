@@ -4,11 +4,8 @@ using SourceCrafter.Mappify.Helpers;
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using SourceCrafter.Helpers;
-using static SourceCrafter.Mappify.TypeMeta;
-using System.Xml.Linq;
 
 namespace SourceCrafter.Mappify
 {

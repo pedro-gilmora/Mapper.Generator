@@ -645,8 +645,11 @@ internal sealed class TypeMap
 
             code.Append("this ")
                 .Append(targetFullTypeName)
-                .Append(" target, ")
-                .Append(sourceFullTypeName)
+                .Append(" target, ");
+
+            if (isSourceValueType) code.Append("in ");
+            
+            code.Append(sourceFullTypeName)
                 .Append(@" source");
 
             if (isTargetTypeRecursive) code.Append(", int __l = 0");
