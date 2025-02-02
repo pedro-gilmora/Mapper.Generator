@@ -116,7 +116,7 @@ jobs:
 
           #echo $commits
 
-          $status, $icon, $message = if ($failed) {
+          $status, $icon, $message = if ($failed -or $errors) {
             'failed', '💥', $errors
           } elseif ('${{ job.status }}' -eq 'success') {
             'successfully completed', '✅', $headCommit
