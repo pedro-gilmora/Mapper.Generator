@@ -102,11 +102,11 @@ internal sealed class TypeMeta
     }
 
     internal bool HasConversion(
-        TypeMeta target,
+        TypeMeta source,
         out ScalarConversion scalarConversion,
         out ScalarConversion reverseScalarConversion) 
-        => HasConversion(this, target, out scalarConversion)
-           | HasConversion(target, this, out reverseScalarConversion);
+        => HasConversion(source, this, out scalarConversion)
+           | HasConversion(this, source, out reverseScalarConversion);
 
     private bool HasConversion(TypeMeta source, TypeMeta target, out ScalarConversion info)
     {
@@ -124,30 +124,21 @@ internal sealed class TypeMeta
 
         var conversion = Types.Compilation.ClassifyConversion(sourceTypeSymbol, targetTypeSymbol);
 
-        info = new(conversion.Exists && (source.IsValueType || source.FullName == "string" || source.IsObject),
-                conversion.IsExplicit,
-                false);
+        info = new(conversion.Exists, conversion.IsExplicit, false);
 
         if (!info.Exists)
         {
-            if (!info.IsExplicit)
-            {
-                info.Exists = info.IsExplicit = sourceTypeSymbol
-                    .GetMembers()
-                    .Any(m =>
-                        m is IMethodSymbol
-                        {
-                            MethodKind: MethodKind.Conversion,
-                            Parameters: [{ Type: { } firstParam }],
-                            ReturnType: { } returnType
-                        }
-                        && SymbolEqualityComparer.Default.Equals(returnType, sourceTypeSymbol)
-                        && SymbolEqualityComparer.Default.Equals(firstParam, targetTypeSymbol));
-            }
-            else if (target.IsInterface && sourceTypeSymbol.AllInterfaces.Any(targetTypeSymbol.Equals))
-            {
-                info.Exists = info.InheritsFromTarget = !(info.IsExplicit = false);
-            }
+            info.Exists = info.IsExplicit = sourceTypeSymbol
+                .GetMembers()
+                .Any(m =>
+                    m is IMethodSymbol
+                    {
+                        MethodKind: MethodKind.Conversion,
+                        Parameters: [{ Type: { } firstParam }],
+                        ReturnType: { } returnType
+                    }
+                    && SymbolEqualityComparer.Default.Equals(returnType, sourceTypeSymbol)
+                    && SymbolEqualityComparer.Default.Equals(firstParam, targetTypeSymbol));
         }
         else
         {
@@ -223,9 +214,9 @@ internal sealed class TypeMeta
                         }
 
                         var canRead = prop.GetMethod is not null;
-                        var canWrite = prop.SetMethod is { IsInitOnly: false } || useUnsafeAccessor;
+                        var canWrite = prop.SetMethod is { IsInitOnly: false } ;
                         
-                        if(!canRead && !canWrite) continue;
+                        if(!canRead && !canWrite && !useUnsafeAccessor) continue;
 
                         isProperty = true;
                         

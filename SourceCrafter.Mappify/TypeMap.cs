@@ -156,18 +156,18 @@ internal sealed class TypeMap
 
         if (targetType.HasConversion(sourceType, out var scalarConversion, out var reverseScalarConversion))
         {
-            if (ignore < GenerateOn.Target && scalarConversion.Exists)
+            if (scalarConversion.Exists)
             {
-                _value = scalarConversion.IsExplicit
+                _value = (!targetType.IsInterface && scalarConversion.IsExplicit)
                     ? Assignment.AsCast
                     : Assignment.AsValue;
 
                 _isValid = true;
             }
 
-            if (!sameType && ignore is not (GenerateOn.Source or GenerateOn.Both) && reverseScalarConversion.Exists)
+            if (reverseScalarConversion.Exists)
             {
-                _reverseValue = reverseScalarConversion.IsExplicit
+                _reverseValue = (!sourceType.IsInterface && reverseScalarConversion.IsExplicit)
                     ? Assignment.AsCast
                     : Assignment.AsValue;
 
@@ -182,9 +182,9 @@ internal sealed class TypeMap
 
         _requiresMethod = _requiresReverseMethod = true;
 
-        if (!targetType.IsInterface) _value = Assignment.AsMapper;
+        if (!scalarConversion.Exists) _value = Assignment.AsMapper;
 
-        if (!sourceType.IsInterface) _reverseValue = Assignment.AsMapper;
+        if (!reverseScalarConversion.Exists) _reverseValue = Assignment.AsMapper;
 
         _mapper = new MapperMethod(targetType, sourceType, _methodName).BuildMethods;
 
@@ -200,16 +200,16 @@ internal sealed class TypeMap
             {
                 var map = this;
 
-                if (!targetMember.Discard(sourceMember, allowLowerCase, out var targetCtx, out var sourceCtx)
+                if (targetMember.IsMatchingContext(sourceMember, allowLowerCase, out var isTargetAssignable, out var isSourceAssignable) 
                     && (Id == GetId(sourceMember.Type.Id, sourceMember.Type.Id)
                         || (map = mappers.GetOrAdd(targetMember, sourceMember, ignore))._isValid))
                 {
                     var (requiresMethod, copyMethod, updateMethod, requiresReverseMethod, reverseMethod, reverseUpdateMethod, appendValue, reverseAppendValue) =
                         (map._targetType.Id, map._sourceType.Id) == (targetMember.Type.Id, sourceMember.Type.Id)
-                            ? (map._requiresMethod, map._methodName, map._updateMethod, map._requiresReverseMethod, map._reverseMethodName, map._reverseUpdateMethodName, map._value, map._isSameType ? map._value : map._reverseValue)
-                            : (map._requiresReverseMethod, map._reverseMethodName, map._reverseUpdateMethodName, map._requiresMethod, map._methodName, map._updateMethod, map._isSameType ? map._value : map._reverseValue, map._value);
+                            ? (map._requiresMethod, map._methodName, map._updateMethod, map._requiresReverseMethod, map._reverseMethodName, map._reverseUpdateMethodName, map._value, map._reverseValue)
+                            : (map._requiresReverseMethod, map._reverseMethodName, map._reverseUpdateMethodName, map._requiresMethod, map._methodName, map._updateMethod, map._reverseValue, map._value);
 
-                    if (!targetCtx.Ignore
+                    if (isTargetAssignable
                         && TryBuildMemberAssignment(
                             targetMember,
                             sourceMember,
@@ -224,7 +224,7 @@ internal sealed class TypeMap
                         _members += memberAssignment;
                     }
 
-                    if (!sourceCtx.Ignore
+                    if (isSourceAssignable
                         && TryBuildMemberAssignment(
                             sourceMember,
                             targetMember,
@@ -701,7 +701,7 @@ internal sealed class TypeMap
         out Action<StringBuilder> assigner)
     {
         // Si se requiere unsafe accessor y no está permitido, salimos
-        if (target.UseUnsafeAccessor && !canUseUnsafeAccessor)
+        if (!target.CanWrite && !target.UseUnsafeAccessor && !canUseUnsafeAccessor)
         {
             assigner = null!;
             return false;
@@ -718,11 +718,14 @@ internal sealed class TypeMap
         }
 
         // Consolidamos todos los datos en una estructura inmutable
-        Assignment state = new (
+        Assignment state = new(
             target.Type.FullName,
             "." + target.Name,
             source.Type.FullName,
             "." + source.Name,
+            updateMethodName,
+            copyMethod,
+            target.UnsafeFieldAccesor,
             target.UseUnsafeAccessor,
             target.Type.IsValueType,
             target.IsNullable,
@@ -730,15 +733,13 @@ internal sealed class TypeMap
             source.IsNullable,
             recursive,
             isParentValueType,
-            updateMethodName,
-            copyMethod,
-            target.UnsafeFieldAccesor,
+            target.CanWrite,
             target.MaxDepth);
 
         // Selección de la asignación según los casos
         assigner = target.Type.IsMemberless && target.Type.IsPrimitive
-            ? code => state.DirectAssignment(code, appendValue)
-            : !source.Type.IsMemberless && target.IsNullable
+            ? code => state.DefaultAssignment(code, appendValue)
+            : !source.Type.IsMemberless && (target.IsNullable || source.IsNullable)
                 ? code => state.NullableAssignment(code, appendValue)
                 : useFillMethod
                     ? code => state.UpdateMethodAssignment(code, appendValue)
@@ -846,6 +847,8 @@ internal readonly record struct CollectionMeta(
     }
 };
 
+internal delegate void ValueBuilder(in Assignment state, StringBuilder code, bool preventNullCheck = false);
+
 internal record struct CollectionMapping(
     bool CreateArray,
     bool UseLenInsteadOfIndex,
@@ -854,13 +857,14 @@ internal record struct CollectionMapping(
     string? Method,
     string MethodName);
 
-internal delegate void ValueBuilder(in Assignment state, StringBuilder code, bool preventNullCheck = false);
-
 internal readonly struct Assignment(
     string targetTypeFullName,
     string targetMemberName,
     string sourceTypeFullName,
     string sourceMemberName,
+    string copyMethodName,
+    string updateMethodName,
+    string unsafeFieldAccesor,
     bool useUnsafeAccessor,
     bool isTargetValueType,
     bool isTargetNullable,
@@ -868,9 +872,7 @@ internal readonly struct Assignment(
     bool isSourceNullable,
     bool recursive,
     bool isParentValueType,
-    string copyMethodName,
-    string updateMethodName,
-    string unsafeFieldAccesor,
+    bool canWrite,
     int maxDepth)
 {
     private readonly string 
@@ -902,47 +904,68 @@ internal readonly struct Assignment(
         if (ShouldAppendNewLine(code))
             code.AppendLine();
 
-        code.Append(@"
+        if (isSourceNullable)
+        {
+            code.Append(@"
         if (source")
-            .Append(sourceMemberName)
-            .Append(AppendNullCheck(isSourceValueType, isSourceNullable));
+                .Append(sourceMemberName)
+                .Append(AppendNullCheck(isSourceValueType, isSourceNullable));
 
-        if (recursive)
-            code.Append(" && __l <= ").Append(maxDepth);
+            if (recursive)
+                code.Append(" && __l <= ").Append(maxDepth);
 
-        code.AppendLine(")");
+            code.Append(") ");
+        }
+        if (isTargetNullable)
+        {
 
-        code.Append(@"
-            if(target")
-            .Append(targetMemberName)
-            .Append(AppendNullCheck(isTargetValueType, isTargetNullable))
-            .Append(") ");
+            code.Append(@"
+");
+            if(isSourceNullable) code.Append("    ");
+            
+            code.Append("        if(target")
+                .Append(targetMemberName)
+                .Append(AppendNullCheck(isTargetValueType, isTargetNullable))
+                .Append(") ");
 
-        AppendAssignmentCall(code);
+            AppendAssignmentCall(code);
 
-        code.AppendLine()
-            .Append(@"
-            else ");
+            code.Append(@";
+");
+            if(isSourceNullable) code.Append("    ");
+            
+            code.Append("        else ");
 
-        if (useUnsafeAccessor)
-            AppendTargetValue(code);
+            if (!canWrite && useUnsafeAccessor)
+                AppendTargetValue(code);
+            else
+                code.Append("target").Append(targetMemberName);
+
+            code.Append(" = ");
+
+            appendValue(this, code, true);
+        }
         else
-            code.Append("target").Append(targetMemberName);
+        {
+            AppendAssignmentCall(code);
+        }
 
-        code.Append(" = ");
+        code.Append(";");
 
-        appendValue(this, code);
-        
-        code.AppendLine(";")
-            .Append(@"
+        if (isSourceNullable)
+        {
+            code.Append(@"
         else ");
 
-        if (useUnsafeAccessor)
-            AppendTargetValue(code);
-        else
-            code.Append("target").Append(targetMemberName);
+            if (useUnsafeAccessor)
+                AppendTargetValue(code);
+            else
+                code.Append("target").Append(targetMemberName);
 
-        code.AppendLine(" = default;");
+            code.Append(" = default;");
+        }
+
+        code.AppendLine();
     }
 
     internal void UpdateMethodAssignment(StringBuilder code, ValueBuilder _)
@@ -951,6 +974,8 @@ internal readonly struct Assignment(
         ");
 
         AppendAssignmentCall(code);
+
+        code.Append(@";");
     }
 
     internal void DefaultAssignment(StringBuilder code, ValueBuilder appendValue)
@@ -1026,20 +1051,17 @@ internal readonly struct Assignment(
         if (recursive)
             code.Append(", __l");
 
-        code.Append(");");
+        code.Append(")");
     }
 
     internal static void AsValue(in Assignment state, StringBuilder code, bool dontChecknull = false)
     {
+        //code.AppendLine("/*").AppendLine(state.ToString()).Append("*/");
         code.Append("source").Append(state.sourceMemberName);
 
-        if (dontChecknull || state.isSourceNullable || !state.isSourceNullable) return;
+        if (dontChecknull || !state.isSourceNullable || state.isTargetNullable) return;
 
-        if (state.isSourceNullable && state.isSourceValueType)
-            code.Append(".HasValue ? source").Append(state.sourceMemberName).Append(".Value : default!");
-        else
-            code.Append(" {} source").Append(state.sourceMemberName).Append(" ? source").Append(state.sourceMemberName)
-                .Append(" : default");
+        code.Append(" ?? default!");
     }
 
     internal static void AsCast(in Assignment state, StringBuilder code, bool dontCheckNull = false)
@@ -1053,7 +1075,8 @@ internal readonly struct Assignment(
         if (!dontCheckNull && !state.isTargetNullable && state.isSourceNullable && state.isSourceValueType)
             code.Append("(source")
                 .Append(state.sourceMemberName)
-                .Append(" ?? default(").Append(state.sourceTypeFullName).Append("))");
+                .Append(" ?? default!)");
+        /*(").Append(state.sourceTypeFullName).Append(")*/
         else
             code.Append("source")
                 .Append(state.sourceMemberName);
